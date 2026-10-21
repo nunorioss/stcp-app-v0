@@ -46,6 +46,11 @@ extension TransitMapRepresentable.Coordinator {
             renderer.lineWidth = 4
             renderer.lineCap = .round
             renderer.lineJoin = .round
+            if polyline.style.dashed {
+                // zero-length dashes with round caps draw dots
+                renderer.lineWidth = 5
+                renderer.lineDashPattern = [0, 9]
+            }
             return renderer
 
         default:

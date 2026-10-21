@@ -55,11 +55,16 @@ struct RouteShape: Equatable {
             guard segment.points.count > 1 else {
                 return []
             }
-            let border = BorderPolyline(coordinates: segment.points, count: segment.points.count)
-            border.opacity = segment.style.opacity
-            
             let line = StyledPolyline(coordinates: segment.points, count: segment.points.count)
             line.style = segment.style
+            
+            // dotted walks have no border
+            guard !segment.style.dashed else {
+                return [line]
+            }
+            
+            let border = BorderPolyline(coordinates: segment.points, count: segment.points.count)
+            border.opacity = segment.style.opacity
             
             return [border, line]
         }

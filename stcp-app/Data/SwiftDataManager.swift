@@ -33,6 +33,11 @@ enum SwiftDataManager {
         container.mainContext
     }
 
+    /// Version of the installed store, for keying caches derived from it.
+    static var storeVersion: Int {
+        UserDefaults.standard.integer(forKey: installedVersionKey)
+    }
+
     /// Get the epoch seconds at which the bundled store was generated.
     private static var bundledVersion: Int {
         guard let url = Bundle.main.url(forResource: bundledVersionFileName, withExtension: nil),

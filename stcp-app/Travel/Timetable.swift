@@ -14,7 +14,7 @@ nonisolated struct Timetable: Codable, Sendable {
     static let formatVersion = 1
 
     /// Every trip that visits exactly the same stop sequence: RAPTOR's notion of a "route".
-    struct Pattern: Codable, Sendable {
+    nonisolated struct Pattern: Codable, Sendable {
         let lineId: String
         let direction: Bool
         let routeSortIndex: Int
@@ -46,13 +46,13 @@ nonisolated struct Timetable: Codable, Sendable {
         }
     }
 
-    struct StopPattern: Codable, Sendable {
+    nonisolated struct StopPattern: Codable, Sendable {
         let pattern: Int32
         let position: Int32
     }
 
     /// A short walk between two nearby stops.
-    struct Transfer: Codable, Sendable {
+    nonisolated struct Transfer: Codable, Sendable {
         let to: Int32
         let meters: Float
     }
@@ -89,11 +89,29 @@ nonisolated struct Timetable: Codable, Sendable {
         let dx = (b.longitude - a.longitude) * 111_320 * cos((a.latitude + b.latitude) * .pi / 360)
         return (dx * dx + dy * dy).squareRoot()
     }
+
+    /// Walkable stop pairs. Sweeps stops sorted by latitude, so it's far from O(n²) in practice.
+    static func transfers(between coords: [GeoPoint], within radius: Double) -> [[Transfer]] {
+        let order = coords.indices.sorted { coords[$0].latitude < coords[$1].latitude }
+        let latitudeSpan = radius / 111_320
+        var result = [[Transfer]](repeating: [], count: coords.count)
+
+        for (k, i) in order.enumerated() {
+            for j in order[(k + 1)...] {
+                if coords[j].latitude - coords[i].latitude > latitudeSpan { break }
+                let d = meters(coords[i], coords[j])
+                guard d <= radius else { continue }
+                result[i].append(Transfer(to: Int32(j), meters: Float(d)))
+                result[j].append(Transfer(to: Int32(i), meters: Float(d)))
+            }
+        }
+        return result
+    }
 }
 
 // MARK: - Disk cache
 
-extension Timetable {
+nonisolated extension Timetable {
     private static func cacheURL(storeVersion: Int, serviceType: Int) -> URL {
         URL.cachesDirectory.appending(path: "timetable-v\(formatVersion)-\(storeVersion)-\(serviceType).plist")
     }

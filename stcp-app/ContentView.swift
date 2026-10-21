@@ -25,6 +25,13 @@ struct ContentView: View {
             .tabItem {
                 Label("Stops", systemImage: "mappin.and.ellipse")
             }
+            
+            NavigationStack {
+                TravelView()
+            }
+            .tabItem {
+                Label("Travel", systemImage: "arrow.triangle.turn.up.right.diamond")
+            }
         }
     }
 }

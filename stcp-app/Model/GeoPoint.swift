@@ -7,7 +7,7 @@
 
 import CoreLocation
 
-public struct GeoPoint: Codable, Hashable {
+nonisolated public struct GeoPoint: Codable, Hashable, Sendable {
     public let latitude: Double
     public let longitude: Double
     
