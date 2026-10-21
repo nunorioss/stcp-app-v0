@@ -87,6 +87,9 @@ private struct EndpointStepRow: View {
 private struct StepRow: View {
     let step: Journey.Step
 
+    @State private var showStops = false
+    private let dotSize: CGFloat = 12
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             icon
@@ -98,7 +101,7 @@ private struct StepRow: View {
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 8)
     }
 
     @ViewBuilder
@@ -136,49 +139,102 @@ private struct StepRow: View {
 
     @ViewBuilder
     private func rideDetails(_ ride: Journey.Ride) -> some View {
-        Text(ride.headsign)
-            .font(.system(.body, design: .rounded))
-            .fontWeight(.semibold)
-
-        HStack(alignment: .firstTextBaseline) {
-            Text("Board at \(ride.from.name)")
-                .font(.system(.subheadline, design: .rounded))
-            Spacer(minLength: 8)
-            LiveClock(scheduled: ride.departure, live: ride.live)
-        }
-        if step.isTight {
-            warning("Tight connection")
-        }
-
-        if ride.stops.count > 2 {
-            DisclosureGroup {
-                ForEach(Array(ride.stops.dropFirst().dropLast().enumerated()), id: \.offset) { _, stop in
-                    Text(stop.name)
-                        .font(.system(.footnote, design: .rounded))
-                        .foregroundStyle(.secondary)
-                }
-            } label: {
-                rideLength(ride)
-            }
-        } else {
-            rideLength(ride)
-        }
-
-        HStack(alignment: .firstTextBaseline) {
-            Text("Get off at \(ride.to.name)")
-                .font(.system(.subheadline, design: .rounded))
-            Spacer(minLength: 8)
-            Text(DateUtil.clockText(for: ride.liveArrival))
-                .font(.system(.subheadline, design: .monospaced))
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Towards")
+                .font(.system(.caption, design: .rounded))
                 .foregroundStyle(.secondary)
+            Text(ride.headsign)
+                .font(.system(.body, design: .rounded))
+                .fontWeight(.semibold)
+        }
+        .padding(.bottom, 8)
+
+        VStack(alignment: .leading, spacing: 0) {
+            timelineStop(caption: "Board at", name: ride.from.name) {
+                LiveClock(scheduled: ride.departure, live: ride.live)
+            }
+            if step.isTight {
+                warning("Tight connection")
+                    .padding(.leading, dotSize + 10)
+                    .padding(.top, 4)
+            }
+
+            HStack(alignment: .top, spacing: 10) {
+                Rectangle()
+                    .fill(.quaternary)
+                    .frame(width: 2)
+                    .frame(width: dotSize)
+                intermediateStops(ride)
+                    .padding(.vertical, 10)
+            }
+
+            timelineStop(caption: "Get off at", name: ride.to.name) {
+                Text(DateUtil.clockText(for: ride.liveArrival))
+                    .font(.system(.subheadline, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
-    private func rideLength(_ ride: Journey.Ride) -> some View {
-        let stops = ride.stops.count - 1
-        return Text("\(stops) stop\(stops == 1 ? "" : "s") · \(ride.minutes) min")
-            .font(.system(.footnote, design: .rounded))
-            .foregroundStyle(.secondary)
+    private func timelineStop(caption: String, name: String,
+                              @ViewBuilder time: () -> some View) -> some View {
+        HStack(spacing: 10) {
+            Circle()
+                .strokeBorder(.secondary, lineWidth: 2)
+                .frame(width: dotSize, height: dotSize)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(caption)
+                    .font(.system(.caption, design: .rounded))
+                    .foregroundStyle(.secondary)
+                Text(name)
+                    .font(.system(.subheadline, design: .rounded))
+                    .fontWeight(.medium)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            time()
+        }
+    }
+
+    @ViewBuilder
+    private func intermediateStops(_ ride: Journey.Ride) -> some View {
+        let middle = Array(ride.stops.dropFirst().dropLast())
+        let count = ride.stops.count - 1
+        let summary = "\(count) stop\(count == 1 ? "" : "s") · \(ride.minutes) min"
+
+        if middle.isEmpty {
+            Text(summary)
+                .font(.system(.footnote, design: .rounded))
+                .foregroundStyle(.secondary)
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    withAnimation(.snappy) { showStops.toggle() }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(summary)
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.bold))
+                            .rotationEffect(.degrees(showStops ? 180 : 0))
+                    }
+                    .font(.system(.footnote, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .frame(minHeight: 32)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(showStops ? "Hide stops" : "Show \(middle.count) intermediate stops")
+
+                if showStops {
+                    ForEach(Array(middle.enumerated()), id: \.offset) { _, stop in
+                        Text(stop.name)
+                            .font(.system(.footnote, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 5)
+                    }
+                }
+            }
+        }
     }
 
     private func warning(_ text: String) -> some View {

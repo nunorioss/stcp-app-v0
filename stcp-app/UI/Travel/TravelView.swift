@@ -16,7 +16,10 @@ struct TravelView: View {
     @State private var model = TravelModel()
     @State private var picking: Field?
     @AppStorage("travel.sort") private var sort: JourneySort = .best
+    @AppStorage("travel.liveOnly") private var liveOnly = false
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
+    private let iconWidth: CGFloat = 28
     private let locationProvider = LocationProvider.shared
 
     private let liveInterval: Duration = .seconds(20)
@@ -34,8 +37,14 @@ struct TravelView: View {
     var body: some View {
         List {
             Section {
-                endpoints
-                departureRow
+                VStack(spacing: 0) {
+                    endpoints
+                    Divider()
+                        .padding(.leading, iconWidth + 12)
+                    departureRow
+                        .padding(.vertical, 10)
+                }
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
             }
             results
         }
@@ -85,7 +94,7 @@ struct TravelView: View {
                 endpointButton(.origin, icon: "location.circle.fill", tint: .blue,
                                label: "From", value: model.name(of: model.origin))
                 Divider()
-                    .padding(.leading, 40)
+                    .padding(.leading, iconWidth + 12)
                 endpointButton(.destination, icon: "mappin.circle.fill", tint: .red,
                                label: "To", value: model.destination.map { model.name(of: $0) })
             }
@@ -113,7 +122,8 @@ struct TravelView: View {
                 Image(systemName: icon)
                     .font(.title2)
                     .foregroundStyle(tint)
-                VStack(alignment: .leading, spacing: 1) {
+                    .frame(width: iconWidth)
+                VStack(alignment: .leading, spacing: 2) {
                     Text(label)
                         .font(.system(.caption, design: .rounded))
                         .foregroundStyle(.secondary)
@@ -124,17 +134,21 @@ struct TravelView: View {
                 }
                 Spacer(minLength: 0)
             }
-            .padding(.vertical, 6)
+            .padding(.vertical, 10)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 
     private var departureRow: some View {
-        HStack {
-            Label("Depart", systemImage: "clock")
+        HStack(spacing: 12) {
+            Image(systemName: "clock")
+                .font(.title2)
+                .foregroundStyle(.blue)
+                .frame(width: iconWidth)
+            Text("Depart")
                 .font(.system(.body, design: .rounded))
-            Spacer()
+            Spacer(minLength: 0)
             if model.departure != nil {
                 Button("Now") { model.departure = nil }
                     .buttonStyle(.borderless)
@@ -157,29 +171,112 @@ struct TravelView: View {
         } else if model.place(for: model.origin) == nil {
             message("Finding your location", systemImage: "location",
                     description: "Allow location access or\nchoose a starting point")
-        } else if model.journeys.isEmpty {
-            if model.isSearching {
+        } else {
+            let walk = model.walkEstimate
+            if let walk {
                 Section {
-                    ProgressView("Finding routes…")
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 24)
-                        .listRowBackground(Color.clear)
+                    walkRow(meters: walk.meters, minutes: walk.minutes)
+                }
+            }
+
+            if model.journeys.isEmpty {
+                if model.isSearching {
+                    Section {
+                        ProgressView("Finding routes…")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 24)
+                            .listRowBackground(Color.clear)
+                    }
+                } else if walk == nil {
+                    message("No routes found", systemImage: "bus",
+                            description: "Try another time or destination")
                 }
             } else {
-                message("No routes found", systemImage: "bus",
-                        description: "Try another time or destination")
-            }
-        } else {
-            CollapsibleSection("Routes", storageKey: "travel.routes", forceExpanded: true) {
-                ForEach(sort.sorted(model.journeys)) { journey in
-                    NavigationLink(value: JourneyLink(id: journey.id)) {
-                        JourneyRow(journey: journey)
+                let shown = sort.sorted(model.journeys).filter { !liveOnly || $0.isLive }
+                CollapsibleSection("Routes", storageKey: "travel.routes", forceExpanded: true) {
+                    if shown.isEmpty {
+                        Text("No routes with live times right now")
+                            .font(.system(.subheadline, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                    } else {
+                        ForEach(shown) { journey in
+                            NavigationLink(value: JourneyLink(id: journey.id)) {
+                                JourneyRow(journey: journey)
+                            }
+                        }
+                    }
+                } accessory: {
+                    HStack(spacing: 12) {
+                        liveToggle
+                        sortMenu
                     }
                 }
-            } accessory: {
-                sortMenu
             }
         }
+    }
+
+    private func walkRow(meters: Double, minutes: Int) -> some View {
+        Button {
+            openWalkingDirections()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "figure.walk")
+                    .font(.title2)
+                    .foregroundStyle(.green)
+                    .frame(width: iconWidth)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Walk there")
+                        .font(.system(.body, design: .rounded))
+                        .fontWeight(.semibold)
+                    Text("It's only about \(Journey.distanceText(meters)) away")
+                        .font(.system(.footnote, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                HStack(alignment: .firstTextBaseline, spacing: 2) {
+                    Text("\(minutes)")
+                        .font(.system(.title2, design: .rounded))
+                        .fontWeight(.semibold)
+                    Text("min")
+                        .font(.system(.subheadline, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
+                Image(systemName: "arrow.up.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Opens walking directions in Maps")
+    }
+
+    private func openWalkingDirections() {
+        guard let from = model.place(for: model.origin)?.location,
+              let to = model.place(for: model.destination)?.location,
+              let url = URL(string: "maps://?saddr=\(from.latitude),\(from.longitude)&daddr=\(to.latitude),\(to.longitude)&dirflg=w")
+        else { return }
+        openURL(url)
+    }
+
+    private var liveToggle: some View {
+        Button {
+            withAnimation(.snappy) { liveOnly.toggle() }
+        } label: {
+            Image(systemName: "dot.radiowaves.left.and.right")
+                .font(.title3)
+                .fontWeight(.medium)
+                .foregroundStyle(liveOnly ? Color.green : Color.secondary)
+                .frame(width: 36, height: 36)
+                .background(liveOnly ? Color.green.opacity(0.15) : Color.clear, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Only routes with live times")
+        .accessibilityAddTraits(liveOnly ? .isSelected : [])
     }
 
     private func message(_ title: String, systemImage: String, description: String) -> some View {

@@ -85,6 +85,15 @@ final class TravelModel {
                   departure: departure)
     }
 
+    /// Set when the trip is short enough that walking is a sensible alternative.
+    var walkEstimate: (meters: Double, minutes: Int)? {
+        guard let from = place(for: origin), let to = place(for: destination) else { return nil }
+        let straight = from.location.distance(to: to.location)
+        guard straight < 500 else { return nil }
+        let minutes = Int((Double(Journey.walkSeconds(straight: straight)) / 60).rounded(.up))
+        return (straight * Journey.detour, max(minutes, 1))
+    }
+
     func journey(id: String) -> Journey? {
         journeys.first { $0.id == id }
     }
