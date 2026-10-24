@@ -12,6 +12,8 @@ nonisolated struct Place: Hashable, Sendable {
     let name: String
     var stopId: String? = nil
     var detail: String? = nil
+    /// What it is, for search results: "Restaurant", "University", "Address"...
+    var kind: String? = nil
     let location: GeoPoint
 }
 
@@ -116,12 +118,15 @@ nonisolated struct Journey: Identifiable, Sendable {
             switch leg {
             case .walk(let walk):
                 var start = clock
+                // only a walk to catch a bus can be late
+                var catchesBus = false
                 if i == 0, legs.count > 1, case .ride(let next) = legs[1] {
                     start = next.liveDeparture.addingTimeInterval(-Double(walk.seconds) - Self.boardBuffer)
+                    catchesBus = true
                 }
                 let end = start.addingTimeInterval(Double(walk.seconds))
                 result.append(Step(id: i, leg: leg, start: start, end: end,
-                                   isTight: i == 0 && start < .now.addingTimeInterval(-30)))
+                                   isTight: catchesBus && start < .now.addingTimeInterval(-30)))
                 clock = end
             case .ride(let ride):
                 result.append(Step(id: i, leg: leg, start: ride.liveDeparture, end: ride.liveArrival,
@@ -139,6 +144,14 @@ nonisolated struct Journey: Identifiable, Sendable {
     var walkMeters: Double { walks.reduce(0) { $0 + $1.meters } }
     var walkSeconds: Int { walks.reduce(0) { $0 + $1.seconds } }
     var isTight: Bool { steps.contains(where: \.isTight) }
+    /// Have to leave right away to catch the first bus.
+    var isTightStart: Bool {
+        steps.contains { if case .walk = $0.leg { $0.isTight } else { false } }
+    }
+    /// Little or no time to change between buses.
+    var isTightTransfer: Bool {
+        steps.contains { if case .ride = $0.leg { $0.isTight } else { false } }
+    }
     var isLive: Bool { rides.first?.live != nil }
 
     /// Lower is better: door-to-door time, plus a bit for waiting, walking and transferring.
@@ -146,6 +159,26 @@ nonisolated struct Journey: Identifiable, Sendable {
         let travel = arrival.timeIntervalSince(departure)
         let wait = max(departure.timeIntervalSince(earliest), 0)
         return travel + 0.4 * wait + 0.6 * Double(walkSeconds) + 300 * Double(transfers)
+    }
+
+    /// A bus route that walking straight there beats: it walks at least as far, or it's
+    /// slower and only saves a little walking. Catches detours like riding away from the
+    /// destination and walking back from a stop farther than where you started.
+    var isPointless: Bool {
+        guard !rides.isEmpty else { return false }
+        let straight = Timetable.meters(from.location, to.location)
+        let walkThere = straight * Self.detour
+        if walkMeters >= walkThere { return true }
+        let slower = arrival.timeIntervalSince(departure) >= TimeInterval(Self.walkSeconds(straight: straight))
+        return slower && walkMeters > walkThere / 2
+    }
+
+    /// Drops bus routes that walk at least as long as just walking there. Meant for after the
+    /// walks are measured on real streets: a stop that looks close in a straight line can be
+    /// a long way round (a motorway in between), which `isPointless` can't see.
+    static func dropWalkingMoreThanWalking(_ journeys: [Journey]) -> [Journey] {
+        guard let direct = journeys.first(where: { $0.rides.isEmpty }) else { return journeys }
+        return journeys.filter { $0.rides.isEmpty || $0.walkSeconds < direct.walkSeconds }
     }
 
     /// No worse on anything, strictly better on something. Leaving later is better.
@@ -157,25 +190,38 @@ nonisolated struct Journey: Identifiable, Sendable {
         return noWorse && better
     }
 
-    /// Dedupes, drops dominated and much slower journeys, and keeps the best few.
-    static func prune(_ journeys: [Journey], limit: Int = 8) -> [Journey] {
+    /// Dedupes, drops pointless, dominated and much slower journeys, and keeps the best few.
+    /// With `arriveBy`, the window is measured back from the latest departure instead.
+    static func prune(_ journeys: [Journey], arriveBy: Bool = false, limit: Int = 8) -> [Journey] {
         var unique: [String: Journey] = [:]
-        for j in journeys where unique[j.id].map({ j.score < $0.score }) ?? true {
+        for j in journeys where !j.isPointless && unique[j.id].map({ j.score < $0.score }) ?? true {
             unique[j.id] = j
         }
         let all = Array(unique.values)
-        guard let fastest = all.map(\.arrival).min() else { return [] }
+        let buses = all.filter { !$0.rides.isEmpty }
+        // measured against buses only: walking there can arrive well before the next bus
+        // even comes, and shouldn't push every bus route out
+        let tooLate: (Journey) -> Bool
+        if arriveBy {
+            guard let latest = buses.map(\.departure).max() else { return all }
+            tooLate = { latest.timeIntervalSince($0.departure) > 45 * 60 }
+        } else {
+            guard let fastest = buses.map(\.arrival).min() ?? all.map(\.arrival).min() else { return [] }
+            tooLate = { $0.arrival.timeIntervalSince(fastest) > 45 * 60 }
+        }
 
         let kept = all.filter { b in
-            b.arrival.timeIntervalSince(fastest) <= 45 * 60
+            b.rides.isEmpty || !tooLate(b)
             && !all.contains { a in a.id != b.id && a.dominates(b) }
         }
         return Array(JourneySort.best.sorted(kept).prefix(limit))
     }
 
     static func distanceText(_ meters: Double) -> String {
-        meters < 1000
-            ? "\(Int((meters / 10).rounded()) * 10) m"
+        // round first, so 996 m reads "1.0 km" rather than "1000 m"
+        let rounded = Int((meters / 10).rounded()) * 10
+        return rounded < 1000
+            ? "\(rounded) m"
             : String(format: "%.1f km", meters / 1000)
     }
 }

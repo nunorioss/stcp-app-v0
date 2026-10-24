@@ -128,10 +128,15 @@ private struct StepRow: View {
                 .font(.system(.subheadline, design: .monospaced))
                 .foregroundStyle(.secondary)
         }
-        // "~" until MapKit has measured the real walking route
-        Text("\(walk.path == nil ? "~" : "")\(walk.minutes) min · \(Journey.distanceText(walk.meters))")
-            .font(.system(.footnote, design: .rounded))
-            .foregroundStyle(.secondary)
+        HStack {
+            // "~" until MapKit has measured the real walking route
+            Text("\(walk.path == nil ? "~" : "")\(walk.minutes) min · \(Journey.distanceText(walk.meters))")
+                .font(.system(.footnote, design: .rounded))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            DirectionsButton(from: walk.from.location, to: walk.to.location)
+                .padding(.vertical, -8) // keep the tap target without growing the row
+        }
         if step.isTight {
             warning("Leave now to make it")
         }
@@ -154,7 +159,7 @@ private struct StepRow: View {
                 LiveClock(scheduled: ride.departure, live: ride.live)
             }
             if step.isTight {
-                warning("Tight connection")
+                warning("Tight transfer")
                     .padding(.leading, dotSize + 10)
                     .padding(.top, 4)
             }

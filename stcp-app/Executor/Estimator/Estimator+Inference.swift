@@ -14,17 +14,13 @@ extension Estimator {
     // to project its delay onto later trips
     private static let maxInferableLateness: TimeInterval = 60 * 60
 
-    //TODO: Simplify formula?: let it simply be
-    //TODO: "scheduledTimeToStart(N) - timeToReach(end of N)"
-    
-    /// For scheduled trips with no live bus, infers a live ETA from a bus
-    /// running an earlier trip of the same block (same physical bus).
-    static func inferLiveFromPreviousTrips(for tripIds: [String],
-                                           live: LiveData,
+    /// Infers the delay of the next trips of every live bus (same block, same physical bus),
+    /// keyed by trip id. Callers pick the trips they care about.
+    static func inferLiveFromPreviousTrips(live: LiveData,
                                            now: Date,
                                            nowSeconds: Int)
     -> [String: (bus: Bus, delay: TimeInterval)] {
-        guard !tripIds.isEmpty, !live.byTripId.isEmpty else {
+        guard !live.byTripId.isEmpty else {
             return [:]
         }
         
@@ -32,17 +28,15 @@ extension Estimator {
 
         for bus in live.byTripId.values {
             guard let busTrip = bus.trip,
-                  let lateness = latenessAtEnd(of: busTrip,
-                                               bus: bus,
-                                               now: now,
-                                               nowSeconds: nowSeconds),
-                  lateness <= maxInferableLateness else {
+                  var freeAt = freeAt(of: busTrip,
+                                      bus: bus,
+                                      now: now,
+                                      nowSeconds: nowSeconds),
+                  // lateness at the end of the current trip
+                  freeAt - TimeInterval(busTrip.lastEtaNumeric) <= maxInferableLateness else {
                 continue
             }
 
-            // early arrival doesn't help;
-            // the next trip still leaves at its scheduled time
-            var delay = max(lateness, 0)
             var current = busTrip
 
             for _ in 0..<maxInferenceHops {
@@ -52,31 +46,24 @@ extension Estimator {
                     break
                 }
 
-                // the layover absorbs part of the delay
-                // layover-> time between end of current trip and start of next trip
-                let slack = TimeInterval(next.firstEtaNumeric - current.lastEtaNumeric)
-                delay = max(delay - slack, 0)
-
+                // early arrival doesn't help;
+                // the next trip still leaves at its scheduled time
+                let delay = max(freeAt - TimeInterval(next.firstEtaNumeric), 0)
                 projected[next.id] = (bus, delay)
+
+                freeAt = TimeInterval(next.lastEtaNumeric) + delay
                 current = next
             }
         }
-
-        var result: [String: (bus: Bus, delay: TimeInterval)] = [:]
-            for id in tripIds {
-                if let inferred = projected[id] {
-                    result[id] = inferred
-                }
-            }
-        return result
+        return projected
     }
 
-    /// How early or late a bus is expected to be when it reaches
-    /// the end of its current trip. nil if the bus can't be placed on its trip.
-    private static func latenessAtEnd(of busTrip: Trip,
-                                      bus: Bus,
-                                      now: Date,
-                                      nowSeconds: Int) -> TimeInterval? {
+    /// When the bus is expected to reach the end of its current trip, in seconds
+    /// of the trip's service day. nil if the bus can't be placed on its trip.
+    private static func freeAt(of busTrip: Trip,
+                               bus: Bus,
+                               now: Date,
+                               nowSeconds: Int) -> TimeInterval? {
         guard let progress = bus.tripProgress else {
             return nil
         }
@@ -88,32 +75,29 @@ extension Estimator {
                 
         guard progress.lastStopIndex + 1 < stops.count else {
             // bus already at the last stop
-            
-            // formula is liveRemaining - scheduledRemaining
-            // = 0 - scheduledRemaining
             let clock = busTrip.liveClock(at: nowSeconds, scheduledAt: busTrip.lastEtaNumeric)
-            return TimeInterval(clock - busTrip.lastEtaNumeric)
+            return TimeInterval(clock)
         }
 
         let lastId = stops[progress.lastStopIndex].id
         let nextId = stops[progress.lastStopIndex + 1].id
         let etas = busTrip.etas(for: [lastId, nextId])
 
-        // live time to reach the last stop
         guard let etaLast = etas[lastId],
-              let etaNext = etas[nextId],
-              let remaining = timeToReach(progress: progress.progress,
-                                          busTimestamp: bus.timestamp,
-                                          etaLastStop: etaLast,
-                                          etaNextStop: etaNext,
-                                          etaTarget: busTrip.lastEtaNumeric,
-                                          now: now) else {
+              let etaNext = etas[nextId] else {
             return nil
         }
         
+        // live time to reach the last stop.
+        //nil: it most likely already got there
+        let remaining = timeToReach(progress: progress.progress,
+                                    busTimestamp: bus.timestamp,
+                                    etaLastStop: etaLast,
+                                    etaNextStop: etaNext,
+                                    etaTarget: busTrip.lastEtaNumeric,
+                                    now: now) ?? 0
+        
         let clock = busTrip.liveClock(at: nowSeconds, scheduledAt: etaLast)
-        let scheduledRemaining = TimeInterval(busTrip.lastEtaNumeric - clock)
-
-        return remaining - scheduledRemaining
+        return TimeInterval(clock) + remaining
     }
 }

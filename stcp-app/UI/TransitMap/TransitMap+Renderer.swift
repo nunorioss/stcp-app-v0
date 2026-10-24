@@ -35,7 +35,7 @@ extension TransitMapRepresentable.Coordinator {
         case let polyline as BorderPolyline:
             let renderer = MKPolylineRenderer(polyline: polyline)
             renderer.strokeColor = .systemBackground
-            renderer.lineWidth = 6
+            renderer.lineWidth = 7.5
             renderer.lineCap = .round
             renderer.lineJoin = .round
             return renderer
@@ -43,14 +43,9 @@ extension TransitMapRepresentable.Coordinator {
         case let polyline as StyledPolyline:
             let renderer = MKPolylineRenderer(polyline: polyline)
             renderer.strokeColor = UIColor(polyline.style.color).withAlphaComponent(polyline.style.opacity)
-            renderer.lineWidth = 4
+            renderer.lineWidth = 5
             renderer.lineCap = .round
             renderer.lineJoin = .round
-            if polyline.style.dashed {
-                // zero-length dashes with round caps draw dots
-                renderer.lineWidth = 5
-                renderer.lineDashPattern = [0, 9]
-            }
             return renderer
 
         default:
@@ -67,7 +62,7 @@ extension TransitMapRepresentable.Coordinator {
         switch annotation {
         case let arrow as ArrowAnnotation:
             let view = mapView.dequeueReusableAnnotationView(withIdentifier: ReuseID.arrow, for: arrow)
-            view.image = Self.arrowUIImage
+            view.image = arrow.walking ? Self.walkingArrowUIImage : Self.arrowUIImage
             view.isEnabled = false
             view.zPriority = .min
             view.transform = CGAffineTransform(rotationAngle: arrow.angle)
@@ -75,9 +70,10 @@ extension TransitMapRepresentable.Coordinator {
 
         case let stop as StopAnnotation:
             let view = mapView.dequeueReusableAnnotationView(withIdentifier: ReuseID.circle, for: stop)
-            view.image = circleUIImage(for: stop.style)
+            view.image = circleUIImage(for: stop.style, isEndpoint: stop.isEndpoint)
             view.isEnabled = false
-            view.zPriority = .min
+            // endpoints stay on top of the stops next to them
+            view.zPriority = stop.isEndpoint ? .defaultUnselected : .min
             return view
 
         case let bus as BusAnnotation:

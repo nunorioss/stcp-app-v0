@@ -83,24 +83,46 @@ extension Estimator {
         }
         
         // inference fallback
-        let notLive = byTrip.values.filter { !$0.isLive }.map(\.tripId)
-        let inferred = inferLiveFromPreviousTrips(for: notLive, live: live,
-                                                      now: now, nowSeconds: nowSeconds)
+        let tracked = Set(live.buses.compactMap { $0.trip?.id })
+        let inferred = inferLiveFromPreviousTrips(live: live, now: now, nowSeconds: nowSeconds)
         
-        for (tripId, inf) in inferred {
-            guard let a = byTrip[tripId] else {
+        for (tripId, inf) in inferred where !tracked.contains(tripId) {
+            let a: Arrival
+            
+            if let scheduled = byTrip[tripId] {
+                a = scheduled
+            } else {
+                // we don't yet have the scheduled trip,
+                //fetch it + make arrival
+                guard let trip = DataStore.getTrip(id: tripId),
+                      let stopIndex = trip.route.stops
+                    .firstIndex(where: { $0.persistentModelID == stop.persistentModelID }),
+                      let scheduled = makeArrival(of: trip, at: stop, stopIndex: stopIndex,
+                                                  bus: nil, now: now, nowSeconds: nowSeconds),
+                      scheduled.scheduledEta < now else {
+                    // later trips get picked up by the schedule once they're in its window
+                    //TODO: Why not allow it either way even if scheduled.scheduledEta >= now?
+                    continue
+                }
+                a = scheduled
+            }
+            
+            let eta = a.scheduledEta.addingTimeInterval(inf.delay)
+            guard eta >= now else {
                 continue
             }
-            byTrip[tripId] = a.with(live: .init(eta: a.scheduledEta.addingTimeInterval(inf.delay),
-                                                busId: inf.bus.id,
-                                                inferred: true))
+            
+            byTrip[tripId] = a.with(live: .init(eta: eta, busId: inf.bus.id, inferred: true))
         }
+        
         return Array(byTrip.values)
     }
     
-    /// Merges PortoDigital live data with scheduled Arrivals keyed by stop id.
+    /// Merges PortoDigital live data with scheduled Arrivals of a line/direction keyed by stop id.
     static func applyPortoDigitalLiveData(_ live: LiveData,
-                                          to arrivals: [String: [Arrival]]) -> [String: [Arrival]] {
+                                          to arrivals: [String: [Arrival]],
+                                          line: BusLine,
+                                          direction: Bool) -> [String: [Arrival]] {
         let now = Date()
         let nowSeconds = DateUtil.secondsSinceMidnight()
 
@@ -116,11 +138,10 @@ extension Estimator {
         }
 
         // inference fallback
-        let notLive = Set(arrivals.values.flatMap { $0 }.map(\.tripId)).subtracting(liveTrips)
-        let inferred = inferLiveFromPreviousTrips(for: Array(notLive), live: live,
-                                                      now: now, nowSeconds: nowSeconds)
+        let inferred = inferLiveFromPreviousTrips(live: live, now: now, nowSeconds: nowSeconds)
+            .filter { !liveTrips.contains($0.key) }
         
-        return result.mapValues { list in
+        result = result.mapValues { list in
             list.map { a in
                 guard !a.isLive, let inf = inferred[a.tripId] else {
                     return a
@@ -130,16 +151,71 @@ extension Estimator {
                                           inferred: true))
             }
         }
+        
+        // inference also covers stops outside the schedule window
+        // e.g. a late trip's stops whose scheduled time already passed
+        for (tripId, inf) in inferred {
+            guard let trip = DataStore.getTrip(id: tripId),
+                  trip.route.line.id == line.id,
+                  trip.route.direction == direction else {
+                continue
+            }
+            let clock = trip.serviceClock(at: nowSeconds)
+            let route = trip.route
+            
+            for ts in trip.tripStops where ts.etaNumeric < clock {
+                let scheduledEta = now.addingTimeInterval(TimeInterval(ts.etaNumeric - clock))
+                let eta = scheduledEta.addingTimeInterval(inf.delay)
+                guard eta >= now else {
+                    continue
+                }
+                
+                result[ts.stop.id, default: []].append(
+                    Arrival(tripId: trip.id,
+                            lineId: route.line.id,
+                            routeId: route.persistentModelID,
+                            routeSortIndex: route.sortIndex,
+                            scheduledEta: scheduledEta,
+                            live: .init(eta: eta, busId: inf.bus.id, inferred: true))
+                )
+            }
+        }
+        return result
     }
     
-    /// Merges STCP API ETAs with a list of arrivals.
-    static func applyETAsFromSTCP(_ etas: [String: Date], to arrivals: [Arrival]) -> [Arrival] {
-        arrivals.map { arrival in
-            // only trips without live data get the new ETA
-            guard !arrival.isLive, let eta = etas[arrival.tripId], eta > .now else {
-                return arrival
+    /// Merges STCP API ETAs for a stop with its arrivals.
+    static func applyETAsFromSTCP(_ etas: [String: Date],
+                                  to arrivals: [Arrival],
+                                  for stop: BusStop,
+                                  live: LiveData) -> [Arrival] {
+        let now = Date()
+        let nowSeconds = DateUtil.secondsSinceMidnight()
+        
+        let tracked = Set(live.buses.compactMap { $0.trip?.id }) // already tracked by PortoDigital
+        var byTrip = Dictionary(arrivals.map { ($0.tripId, $0) }, uniquingKeysWith: { a, _ in a })
+        
+        for (tripId, eta) in etas where eta > now && !tracked.contains(tripId) {
+            let a: Arrival
+            if let existing = byTrip[tripId] {
+                // only trips without live data get the new ETA
+                guard !existing.isLive else {
+                    continue
+                }
+                a = existing
+                
+            } else {
+                // hadn't fetched the trip yet, likely late
+                guard let trip = DataStore.getTrip(id: tripId),
+                      let stopIndex = trip.route.stops
+                    .firstIndex(where: { $0.persistentModelID == stop.persistentModelID }),
+                      let scheduled = makeArrival(of: trip, at: stop, stopIndex: stopIndex,
+                                                  bus: nil, now: now, nowSeconds: nowSeconds) else {
+                    continue
+                }
+                a = scheduled
             }
-            return arrival.with(live: .init(eta: eta, busId: nil, source: .stcp))
+            byTrip[tripId] = a.with(live: .init(eta: eta, busId: nil, source: .stcp))
         }
+        return Array(byTrip.values)
     }
 }

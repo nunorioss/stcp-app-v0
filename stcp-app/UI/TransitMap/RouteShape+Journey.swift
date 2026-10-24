@@ -8,7 +8,7 @@
 import MapKit
 
 extension RouteShape {
-    /// Dotted walks and solid, line-colored rides that follow the line's shape.
+    /// Arrow-marked walks and solid, line-colored rides that follow the line's shape.
     init(journey: Journey) {
         var segments: [Segment] = []
         var arrows: [RouteArrow] = []
@@ -17,9 +17,9 @@ extension RouteShape {
             switch leg {
             case .walk(let walk):
                 let points = (walk.path ?? [walk.from.location, walk.to.location]).map(\.coordinate)
-                segments.append(Segment(points: points,
-                                        stops: [walk.from.location.coordinate, walk.to.location.coordinate],
-                                        style: .walking))
+                // no stop circles: the rides on either side already mark these stops
+                segments.append(Segment(points: points, stops: [], style: .walking))
+                arrows += RouteArrow.along(points, walking: true)
             case .ride(let ride):
                 guard let line = DataStore.getBusLine(id: ride.lineId) else { continue }
                 let points = Self.slice(line.shape(ride.direction), from: ride.from.location, to: ride.to.location)

@@ -12,8 +12,8 @@ struct SegmentStyle: Hashable {
     let opacity: Double // 0..1
     var dashed = false
 
-    /// Dotted gray line for walking legs.
-    static let walking = SegmentStyle(color: Color(.systemGray), opacity: 1, dashed: true)
+    /// Gray walking legs, drawn as arrows instead of a line.
+    static let walking = SegmentStyle(color: Color(.systemGray2), opacity: 1, dashed: true)
     
     static func solid(_ color: Color) -> SegmentStyle {
         SegmentStyle(color: color, opacity: 1)

@@ -11,7 +11,7 @@ import MapKit
 /// Addresses and points of interest around Porto, from MapKit.
 @MainActor
 enum PlaceSearch {
-    private static let porto = CLLocationCoordinate2D(latitude: 41.1579, longitude: -8.6291)
+    static let porto = CLLocationCoordinate2D(latitude: 41.1579, longitude: -8.6291)
 
     static func search(_ query: String) async -> [Place] {
         let request = MKLocalSearch.Request()
@@ -33,6 +33,7 @@ struct PlacePicker: View {
 
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var favorites = FavoritesStore.shared
+    @ObservedObject private var favoritePlaces = FavoritePlacesStore.shared
     @State private var query = ""
     @State private var places: [Place] = []
 
@@ -68,7 +69,7 @@ struct PlacePicker: View {
                     places = []
                     return
                 }
-                try? await Task.sleep(for: .milliseconds(300))
+                try? await Task.sleep(for: .milliseconds(75))
                 guard !Task.isCancelled else { return }
                 places = await PlaceSearch.search(trimmed)
             }
@@ -85,6 +86,22 @@ struct PlacePicker: View {
         Section {
             Button { pick(.currentLocation) } label: {
                 PlaceRow(title: "My Location", icon: "location.circle.fill", tint: .blue)
+            }
+            NavigationLink {
+                MapPointPicker(name: pinName) { location in
+                    pick(.place(Place(name: pinName(location), location: location)))
+                }
+            } label: {
+                PlaceRow(title: "Choose on Map", icon: "map.circle.fill", tint: .green)
+            }
+        }
+        if !favoritePlaces.places.isEmpty {
+            Section("Favorite Places") {
+                ForEach(favoritePlaces.places) { place in
+                    FavoritePlaceRow(place: place) {
+                        pick(.place(Place(name: place.displayName, location: place.location)))
+                    }
+                }
             }
         }
         let favoriteStops = favorites.getFavoriteStops
@@ -108,12 +125,41 @@ struct PlacePicker: View {
         if !places.isEmpty {
             Section("Places") {
                 ForEach(places, id: \.self) { place in
+                    let isFavorite = favoritePlaces.isFavorite(at: place.location)
                     Button { pick(.place(place)) } label: {
-                        PlaceRow(title: place.name, subtitle: place.detail, icon: "mappin.circle.fill", tint: .red)
+                        PlaceRow(title: place.name,
+                                 subtitle: [place.kind, area(of: place)].compactMap { $0 }.joined(separator: " · "),
+                                 caption: place.detail,
+                                 icon: isFavorite ? "star.circle.fill" : "mappin.circle.fill",
+                                 tint: isFavorite ? .yellow : .red)
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button {
+                            withAnimation { favoritePlaces.toggleFavorite(name: place.name, location: place.location) }
+                        } label: {
+                            Label(isFavorite ? "Unfavorite" : "Favorite",
+                                  systemImage: isFavorite ? "star.slash.fill" : "star.fill")
+                        }
+                        .tint(isFavorite ? .gray : .yellow)
                     }
                 }
             }
         }
+    }
+
+    /// MapKit's areas are whole parish unions, so the closest stop's name ("São Bento",
+    /// "Bolhão"...) says better which one of several places with the same name this is.
+    private func area(of place: Place) -> String? {
+        nearestStop(to: place.location).map { "near \($0.name)" }
+    }
+
+    /// A map pin is named after its closest stop.
+    private func pinName(_ location: GeoPoint) -> String {
+        nearestStop(to: location).map { "Pin near \($0.name)" } ?? "Dropped Pin"
+    }
+
+    private func nearestStop(to location: GeoPoint) -> BusStop? {
+        Self.allStops.min { Timetable.meters($0.location, location) < Timetable.meters($1.location, location) }
     }
 
     private func stopButton(_ stop: BusStop) -> some View {
@@ -136,6 +182,7 @@ struct PlacePicker: View {
 private struct PlaceRow: View {
     let title: String
     var subtitle: String? = nil
+    var caption: String? = nil
     let icon: String
     let tint: Color
 
@@ -153,6 +200,12 @@ private struct PlaceRow: View {
                     Text(subtitle)
                         .font(.system(.footnote, design: .rounded))
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                if let caption {
+                    Text(caption)
+                        .font(.system(.caption, design: .rounded))
+                        .foregroundStyle(.tertiary)
                         .lineLimit(1)
                 }
             }

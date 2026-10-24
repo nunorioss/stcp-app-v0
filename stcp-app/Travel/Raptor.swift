@@ -46,6 +46,35 @@ nonisolated struct Raptor {
         return results.map { var j = $0; j.earliest = earliest; return j }
     }
 
+    /// Arrive by `deadline`: forward runs starting at set times before it (never before
+    /// `notBefore`, i.e. now), keeping what arrives in time. Runs that start close to the
+    /// deadline find the latest ways to make it, without a backwards search.
+    static func search(_ timetable: Timetable, from: Place, to: Place,
+                       arriveBy deadline: Int32, notBefore: Int32, dayStart: Date) -> [Journey] {
+        let deadlineDate = dayStart.addingTimeInterval(TimeInterval(deadline))
+        let nowDate = dayStart.addingTimeInterval(TimeInterval(notBefore))
+        let starts = Set([10, 20, 30, 45, 60, 90, 120].map { max(deadline - Int32($0 * 60), notBefore) })
+        var results: [Journey] = []
+
+        for t in starts.sorted() where t < deadline {
+            for j in Raptor(timetable: timetable, settings: .standard)
+                .run(from: from, to: to, at: t, dayStart: dayStart) {
+                var j = j
+                if j.rides.isEmpty {
+                    // leave just in time to walk there
+                    j.earliest = deadlineDate.addingTimeInterval(-TimeInterval(j.walkSeconds))
+                } else {
+                    // no waiting to count: each one leaves when it has to
+                    j.earliest = j.departure
+                }
+                if j.arrival <= deadlineDate, j.departure >= nowDate.addingTimeInterval(-60) {
+                    results.append(j)
+                }
+            }
+        }
+        return results
+    }
+
     private nonisolated enum Kind: UInt8 { case unset, access, ride, transfer }
 
     /// How a stop was reached in a round. For rides: pattern, trip, board and alight positions.
@@ -78,7 +107,6 @@ nonisolated struct Raptor {
         var patternStart = [Int32](repeating: never, count: tt.patterns.count)
         var queue: [Int] = []
         var targetBest = never
-        var targets: [(round: Int, stop: Int)] = []
 
         func improve(_ slot: Int, _ stop: Int, _ time: Int32, _ p: Parent) {
             arrival[slot] = time
@@ -88,6 +116,31 @@ nonisolated struct Raptor {
                 isMarked[stop] = true
                 marked.append(stop)
             }
+        }
+
+        /// Follows the parents back from `stop` in `round`, then builds the journey.
+        func rebuild(round: Int, stop: Int) -> Journey? {
+            var rides: [Parent] = []
+            var s = stop, r = round, steps = 0
+            while r > 0, steps < 64 {
+                steps += 1
+                let p = parent[r * n + s]
+                switch p.kind {
+                case .ride:
+                    rides.append(p)
+                    s = Int(tt.patterns[Int(p.a)].stops[Int(p.c)])
+                    r -= 1
+                case .transfer:
+                    s = Int(p.a)
+                default:
+                    r = -1
+                }
+            }
+            guard r == 0 else { return nil }
+            rides.reverse()
+            improveAccess(&rides[0], from: from, at: t0)
+            improveTransfers(&rides)
+            return self.journey(rides, from: from, to: to, earliest: earliest, dayStart: dayStart)
         }
 
         let egress = tt.stops(near: to.location, within: settings.maxAccess).map { ($0.stop, walk($0.meters)) }
@@ -153,38 +206,98 @@ nonisolated struct Raptor {
                 }
             }
 
-            var roundBest = never, roundStop = -1
-            for (stop, w) in egress where arrival[current + stop] != never {
-                let t = arrival[current + stop] + w
-                if t < roundBest { roundBest = t; roundStop = stop }
+            // the earliest arrival with k rides that isn't pointless: a pointless one (say, a bus
+            // and then a long walk back) mustn't take the place of a sensible one arriving later
+            let arrivals = egress.compactMap { stop, w in
+                arrival[current + stop] == never ? nil : (time: arrival[current + stop] + w, stop: stop)
             }
-            if roundStop >= 0, roundBest < targetBest {
-                targetBest = roundBest
-                targets.append((k, roundStop))
+            for (t, stop) in arrivals.sorted(by: { $0.time < $1.time }) where t < targetBest {
+                guard let found = rebuild(round: k, stop: stop), !found.isPointless else { continue }
+                targetBest = t
+                journeys.append(found)
+                break
             }
-        }
-
-        for (round, stop) in targets {
-            var rides: [Parent] = []
-            var s = stop, r = round, steps = 0
-            while r > 0, steps < 64 {
-                steps += 1
-                let p = parent[r * n + s]
-                switch p.kind {
-                case .ride:
-                    rides.append(p)
-                    s = Int(tt.patterns[Int(p.a)].stops[Int(p.c)])
-                    r -= 1
-                case .transfer:
-                    s = Int(p.a)
-                default:
-                    r = -1
-                }
-            }
-            guard r == 0 else { continue }
-            journeys.append(journey(rides.reversed(), from: from, to: to, earliest: earliest, dayStart: dayStart))
         }
         return journeys
+    }
+
+    /// Keeps the same first trip, but boards it where walking (counting double) plus riding is
+    /// shortest. RAPTOR boards at the first stop it can catch the trip, which may be a stop
+    /// further away on its route, so the same bus comes with a much longer walk.
+    private func improveAccess(_ ride: inout Parent, from: Place, at t0: Int32) {
+        let tt = timetable
+        let pattern = tt.patterns[Int(ride.a)]
+        let trip = Int(ride.b), alight = Int(ride.d)
+
+        // meters along the pattern from each position to where we get off
+        var toAlight = [Double](repeating: 0, count: alight + 1)
+        for pos in stride(from: alight - 1, through: 0, by: -1) {
+            toAlight[pos] = toAlight[pos + 1] + Timetable.meters(tt.coords[Int(pattern.stops[pos])],
+                                                                 tt.coords[Int(pattern.stops[pos + 1])])
+        }
+
+        var bestCost = Double.infinity
+        for pos in 0..<alight {
+            let meters = Timetable.meters(from.location, tt.coords[Int(pattern.stops[pos])])
+            guard meters <= settings.maxAccess,
+                  t0 + walk(meters) + settings.boardSlack <= pattern.time(trip: trip, at: pos) else { continue }
+            let cost = 2 * meters + toAlight[pos]
+            if cost < bestCost {
+                bestCost = cost
+                ride.c = Int32(pos)
+            }
+        }
+    }
+
+    /// Keeps the same trips, but moves each transfer to the stops that travel the least distance,
+    /// walking counting double. RAPTOR boards the next trip at the first stop it can catch it,
+    /// which can mean riding a loop and back when getting off earlier and walking works too.
+    /// Distance, not time: nearby stops are a minute apart, so loops look almost free in minutes.
+    private func improveTransfers(_ rides: inout [Parent]) {
+        let tt = timetable
+
+        // meters along a pattern from its first stop, per position
+        func distances(_ pattern: Timetable.Pattern) -> [Double] {
+            var result = [0.0]
+            for k in pattern.stops.indices.dropFirst() {
+                result.append(result[k - 1] + Timetable.meters(tt.coords[Int(pattern.stops[k - 1])],
+                                                               tt.coords[Int(pattern.stops[k])]))
+            }
+            return result
+        }
+
+        for i in rides.indices.dropLast() {
+            let first = tt.patterns[Int(rides[i].a)], next = tt.patterns[Int(rides[i + 1].a)]
+            let firstTrip = Int(rides[i].b), nextTrip = Int(rides[i + 1].b)
+            let board = Int(rides[i].c), alight = Int(rides[i + 1].d)
+            let firstMeters = distances(first), nextMeters = distances(next)
+
+            // where the next trip can be boarded: any stop before where we leave it
+            var nextPositions: [Int: [Int]] = [:]
+            for pos in 0..<alight {
+                nextPositions[Int(next.stops[pos]), default: []].append(pos)
+            }
+
+            var bestCost = Double.infinity
+            for off in (board + 1)..<first.stops.count {
+                let stop = Int(first.stops[off])
+                let arrive = first.time(trip: firstTrip, at: off)
+                let walks = [(stop, 0.0)] + tt.transfers[stop].map { (Int($0.to), Double($0.meters)) }
+                for (to, meters) in walks {
+                    let walk = Int32(Journey.walkSeconds(straight: meters))
+                    for on in nextPositions[to] ?? [] {
+                        guard arrive + walk + settings.boardSlack <= next.time(trip: nextTrip, at: on) else { continue }
+                        let cost = (firstMeters[off] - firstMeters[board]) + 2 * meters
+                            + (nextMeters[alight] - nextMeters[on])
+                        if cost < bestCost {
+                            bestCost = cost
+                            rides[i].d = Int32(off)
+                            rides[i + 1].c = Int32(on)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Walks are re-derived between consecutive rides, so chained footpaths collapse into one.

@@ -29,8 +29,7 @@ enum JourneyLive {
         let stcp = await stcpETAs(for: Set(journeys.compactMap { $0.rides.first?.from.stopId }))
 
         let now = Date(), nowSeconds = DateUtil.secondsSinceMidnight()
-        let inferred = Estimator.inferLiveFromPreviousTrips(for: Array(Set(rides.map(\.tripId))),
-                                                            live: live, now: now, nowSeconds: nowSeconds)
+        let inferred = Estimator.inferLiveFromPreviousTrips(live: live, now: now, nowSeconds: nowSeconds)
 
         let updated = journeys.map { journey in
             var journey = journey
@@ -156,6 +155,19 @@ extension MKMapItem {
         }
         return Place(name: name ?? fallbackName,
                      detail: detail,
+                     kind: kind,
                      location: GeoPoint(latitude: coordinate.latitude, longitude: coordinate.longitude))
+    }
+
+    /// "MKPOICategoryPublicTransport" -> "Public Transport"; no category means a plain address.
+    private var kind: String {
+        guard let category = pointOfInterestCategory else { return "Address" }
+        let name = category.rawValue.replacingOccurrences(of: "MKPOICategory", with: "")
+        var words = ""
+        for (i, c) in name.enumerated() {
+            if i > 0, c.isUppercase { words.append(" ") }
+            words.append(c)
+        }
+        return words
     }
 }

@@ -13,9 +13,13 @@ struct RouteArrow {
     
     /// The zoom level from which this arrow is shown.
     let level: Int
+
+    /// Walking arrows are drawn on their own instead of on top of a line.
+    var walking = false
     
     // finest spacing
     static let spacing: CLLocationDistance = 125
+    static let walkingSpacing: CLLocationDistance = 30
     
     private static func level(ofIndex k: Int) -> Int {
         if k % 8 == 0 { return 1 }
@@ -26,8 +30,10 @@ struct RouteArrow {
 
     static func along(
         _ coordinates: [CLLocationCoordinate2D],
-        startDistance: CLLocationDistance = 0
+        startDistance: CLLocationDistance = 0,
+        walking: Bool = false
     ) -> [RouteArrow] {
+        let spacing = walking ? Self.walkingSpacing : Self.spacing
         guard coordinates.count > 1 else {
             return []
         }
@@ -59,7 +65,7 @@ struct RouteArrow {
                 let t = (nextArrow - travelled) / length
                 let point = MKMapPoint(x: a.x + dx * t, y: a.y + dy * t)
                 result.append(
-                    RouteArrow(coordinate: point.coordinate, angle: angle, level: level(ofIndex: k))
+                    RouteArrow(coordinate: point.coordinate, angle: angle, level: level(ofIndex: k), walking: walking)
                 )
                 k += 1
                 nextArrow = spacing / 2 + Double(k) * spacing

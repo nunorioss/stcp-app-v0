@@ -11,7 +11,7 @@ import SwiftData
 struct StopView: View {
     let stop: BusStop
     
-    /// True if `route` terminates at this stop: nobody boards there, so there's nothing to show.
+    /// True if `route` terminates at this stop: nobody boards there, so it goes under "Arrivals".
     /// Uses the first occurrence of the stop, the same one `Estimator.estimate` uses, so the
     /// start of a circular line (first and last stop are the same) still shows its departures.
     private func endsHere(_ route: Route) -> Bool {
@@ -33,6 +33,7 @@ struct StopView: View {
     private let refreshInterval: Duration = .seconds(10)
     
     @AppStorage("stop.groupByLine") private var groupByLine = false
+    @AppStorage("stop.liveOnly") private var liveOnly = false
 
     /// What the map needs: the buses referenced by the current arrivals.
     private struct BusQuery: Equatable {
@@ -41,15 +42,24 @@ struct StopView: View {
         let isActive: Bool
     }
 
-    private var normalArrivals: [Arrival] { arrivals.filter { !farTripIds.contains($0.tripId) } }
+    private var departures: [Arrival] { arrivals.filter { !endsHere($0.route) } }
+
+    /// Trips whose last stop is this one.
+    private var terminating: [Arrival] {
+        arrivals.filter { endsHere($0.route) && (!liveOnly || $0.live != nil) }
+    }
+
+    private var filteredArrivals: [Arrival] { departures.filter { !liveOnly || $0.live != nil } }
+
+    private var normalArrivals: [Arrival] { filteredArrivals.filter { !farTripIds.contains($0.tripId) } }
 
     /// Only far-away arrivals exist -> show them all. Otherwise hide them behind the toggle.
     private var visibleArrivals: [Arrival] {
-        normalArrivals.isEmpty || showFar ? arrivals : normalArrivals
+        normalArrivals.isEmpty || showFar ? filteredArrivals : normalArrivals
     }
 
     private var canToggleFar: Bool {
-        !normalArrivals.isEmpty && normalArrivals.count < arrivals.count
+        !normalArrivals.isEmpty && normalArrivals.count < filteredArrivals.count
     }
 
     private var busQuery: BusQuery {
@@ -99,7 +109,13 @@ struct StopView: View {
                 }
                 
                 CollapsibleSection("Departures", storageKey: "stopview.departures", forceExpanded: true) {
-                    if groupByLine {
+                    if liveOnly && filteredArrivals.isEmpty && !departures.isEmpty {
+                        Text("No departures with live times right now")
+                            .font(.system(.subheadline, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                    } else if groupByLine {
                         LineArrivalList(arrivals: visibleArrivals)
                     } else {
                         ArrivalList(arrivals: visibleArrivals)
@@ -108,7 +124,20 @@ struct StopView: View {
                         farToggle
                     }
                 } accessory: {
-                    groupMenu
+                    HStack(spacing: 12) {
+                        LiveToggle(isOn: $liveOnly, accessibilityLabel: "Only departures with live times")
+                        groupMenu
+                    }
+                }
+
+                if !terminating.isEmpty {
+                    CollapsibleSection("Arrivals", storageKey: "stopview.arrivals") {
+                        if groupByLine {
+                            LineArrivalList(arrivals: terminating)
+                        } else {
+                            ArrivalList(arrivals: terminating)
+                        }
+                    }
                 }
             }
         .environment(\.defaultMinListHeaderHeight, 0)
@@ -171,7 +200,7 @@ struct StopView: View {
     /// nothing due soon still show up.
     /// 
     private func refreshSchedule() async {
-        var arrivals = Estimator.estimate(for: stop, within: 75).filter { !endsHere($0.route) }
+        var arrivals = Estimator.estimate(for: stop, within: 75)
         var tripIds = Set(arrivals.map(\.tripId))
         var far: Set<String> = []
 
@@ -205,8 +234,7 @@ struct StopView: View {
     /// Schedule, then Porto Digital (with inference), then STCP.
     private func regroup() {
         let withLive = Estimator.applyLiveDataFromPortoDigital(live, to: scheduled, for: stop)
-        let merged = Estimator.applyETAsFromSTCP(stcpETAs, to: withLive)
-            .filter { !endsHere($0.route) }
+        let merged = Estimator.applyETAsFromSTCP(stcpETAs, to: withLive, for: stop, live: live)
 
         let pd = withLive.filter { $0.live?.inferred == false }.count
         let inferred = withLive.filter { $0.live?.inferred == true }.count

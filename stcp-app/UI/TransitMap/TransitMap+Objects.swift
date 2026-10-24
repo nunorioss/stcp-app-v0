@@ -25,27 +25,33 @@ final class ArrowAnnotation: NSObject, MKAnnotation {
     @objc dynamic var coordinate: CLLocationCoordinate2D
     let angle: Double
     let level: Int
+    let walking: Bool
     
-    init(coordinate: CLLocationCoordinate2D, angle: Double, level: Int) {
+    init(coordinate: CLLocationCoordinate2D, angle: Double, level: Int, walking: Bool = false) {
         self.coordinate = coordinate
         self.angle = angle
         self.level = level
+        self.walking = walking
     }
     
     convenience init(_ arrow: RouteArrow) {
         self.init(coordinate: arrow.coordinate,
                   angle: arrow.angle,
-                  level: arrow.level)
+                  level: arrow.level,
+                  walking: arrow.walking)
     }
 }
 
 final class StopAnnotation: NSObject, MKAnnotation {
     @objc dynamic var coordinate: CLLocationCoordinate2D
     let style: SegmentStyle
+    /// First or last stop of its segment (route ends, or where to board and alight), drawn bigger.
+    let isEndpoint: Bool
     
-    init(coordinate: CLLocationCoordinate2D, style: SegmentStyle) {
+    init(coordinate: CLLocationCoordinate2D, style: SegmentStyle, isEndpoint: Bool = false) {
         self.coordinate = coordinate
         self.style = style
+        self.isEndpoint = isEndpoint
     }
 }
 

@@ -391,7 +391,8 @@ private struct StopTimeline: View {
 
     /// Schedule, then Porto Digital (with inference).
     private func regroup() {
-        let merged = Estimator.applyPortoDigitalLiveData(live, to: scheduled)
+        let merged = Estimator.applyPortoDigitalLiveData(live, to: scheduled,
+                                                         line: line, direction: direction)
         snapshot = Snapshot(merged, buses: live.buses, within: horizonMinutes)
     }
 

@@ -15,9 +15,11 @@ enum Estimator {
         // all buses eligible for inference
         var byTripId: [String: Bus] = [:]
     }
+
+    static let updateFrequency: TimeInterval = 2 * 60
     
     /// Seconds until a bus reaches a target stop, based on the trip schedule.
-    /// Returns nil if bus already passed the stop
+    /// Returns nil if bus already passed the stop and its data is stale.
     static func timeToReach(progress: Double,
                                     busTimestamp: Date,
                                     etaLastStop: Int,
@@ -41,7 +43,11 @@ enum Estimator {
         // take into account bus location age
         let sinceUpdate = max(now.timeIntervalSince(busTimestamp), 0)
 
-        return max(scheduled - alpha - sinceUpdate, 0)
+        let remaining = scheduled - alpha - sinceUpdate
+        if remaining < 0 && sinceUpdate > updateFrequency {
+            return nil
+        }
+        return max(remaining, 0)
     }
     
     
@@ -81,13 +87,16 @@ enum Estimator {
 
         var live: Arrival.Live?
         if let bus, let progress,
-           let etaLast = etas[stops[progress.lastStopIndex].id],
-           let remaining = timeToReach(progress: progress.progress,
-                                       busTimestamp: bus.timestamp,
-                                       etaLastStop: etaLast,
-                                       etaNextStop: etas[stops[progress.lastStopIndex + 1].id],
-                                       etaTarget: etaTarget,
-                                       now: now) {
+           let etaLast = etas[stops[progress.lastStopIndex].id] {
+            guard let remaining = timeToReach(progress: progress.progress,
+                                              busTimestamp: bus.timestamp,
+                                              etaLastStop: etaLast,
+                                              etaNextStop: etas[stops[progress.lastStopIndex + 1].id],
+                                              etaTarget: etaTarget,
+                                              now: now) else {
+                // bus already passed the stop
+                return nil
+            }
             live = Arrival.Live(eta: now.addingTimeInterval(remaining), busId: bus.id)
         }
 
@@ -118,18 +127,19 @@ enum Estimator {
             
         let route = trip.route
 
-        return tripStops[start...].map { ts in
+        return tripStops[start...].compactMap { ts in
             let scheduledEta = now.addingTimeInterval(TimeInterval(ts.etaNumeric - clock))
             
-            var live: Arrival.Live?
-            if let remaining = timeToReach(progress: progress.progress,
-                                           busTimestamp: bus.timestamp,
-                                           etaLastStop: etaLast,
-                                           etaNextStop: etaNext,
-                                           etaTarget: ts.etaNumeric,
-                                           now: now) {
-                live = .init(eta: now.addingTimeInterval(remaining), busId: bus.id)
+            guard let remaining = timeToReach(progress: progress.progress,
+                                              busTimestamp: bus.timestamp,
+                                              etaLastStop: etaLast,
+                                              etaNextStop: etaNext,
+                                              etaTarget: ts.etaNumeric,
+                                              now: now) else {
+                // bus already passed the stop
+                return nil
             }
+            let live = Arrival.Live(eta: now.addingTimeInterval(remaining), busId: bus.id)
             
             return (
                 ts.stop.id,

@@ -12,7 +12,7 @@ import Observation
 /// Picks the service days to search (yesterday's too, right after midnight) and runs RAPTOR off the main actor.
 @MainActor
 enum Planner {
-    static func plan(from: Place, to: Place, at date: Date) async -> [Journey] {
+    static func plan(from: Place, to: Place, at date: Date, arriveBy: Bool = false) async -> [Journey] {
         let calendar = DateUtil.portoCalendar
         let today = calendar.startOfDay(for: date)
         let seconds = Int32(DateUtil.secondsSinceMidnight(at: date))
@@ -26,10 +26,13 @@ enum Planner {
         for (start, t) in days {
             let timetable = await TimetableStore.timetable(for: DataStore.getServiceType(on: start).rawValue)
             all += await Task.detached(priority: .userInitiated) {
-                Raptor.search(timetable, from: from, to: to, at: t, dayStart: start)
+                arriveBy
+                    ? Raptor.search(timetable, from: from, to: to, arriveBy: t,
+                                    notBefore: Int32(Date.now.timeIntervalSince(start)), dayStart: start)
+                    : Raptor.search(timetable, from: from, to: to, at: t, dayStart: start)
             }.value
         }
-        return Journey.prune(all)
+        return Journey.prune(all, arriveBy: arriveBy)
     }
 }
 
@@ -44,12 +47,15 @@ final class TravelModel {
         let from: GeoPoint?
         let to: GeoPoint?
         let departure: Date?
+        let arriveBy: Bool
     }
 
     var origin: Endpoint = .currentLocation
     var destination: Endpoint?
     /// nil = leave now
     var departure: Date?
+    /// `departure` is when to arrive by, instead of when to leave.
+    var arriveBy = false
 
     private(set) var journeys: [Journey] = []
     /// Live buses by trip id, for the map.
@@ -82,16 +88,8 @@ final class TravelModel {
     var searchKey: SearchKey {
         SearchKey(from: place(for: origin)?.location.rounded,
                   to: place(for: destination)?.location.rounded,
-                  departure: departure)
-    }
-
-    /// Set when the trip is short enough that walking is a sensible alternative.
-    var walkEstimate: (meters: Double, minutes: Int)? {
-        guard let from = place(for: origin), let to = place(for: destination) else { return nil }
-        let straight = from.location.distance(to: to.location)
-        guard straight < 500 else { return nil }
-        let minutes = Int((Double(Journey.walkSeconds(straight: straight)) / 60).rounded(.up))
-        return (straight * Journey.detour, max(minutes, 1))
+                  departure: departure,
+                  arriveBy: arriveBy)
     }
 
     func journey(id: String) -> Journey? {
@@ -118,13 +116,17 @@ final class TravelModel {
         isSearching = true
         defer { isSearching = false }
 
-        let found = await Planner.plan(from: from, to: to, at: departure ?? .now)
+        var found = await Planner.plan(from: from, to: to, at: departure ?? .now, arriveBy: arriveBy && departure != nil)
         guard !Task.isCancelled else { return }
+        // buses that already left are no use; walking still works any time
+        if let departure, departure < Calendar.current.dateInterval(of: .minute, for: .now)?.start ?? .now {
+            found = found.filter { $0.rides.isEmpty }
+        }
         planned = found
         journeys = found
         lastSearch = (key, .now)
 
-        let refined = await WalkRouter.refine(found)
+        let refined = Journey.dropWalkingMoreThanWalking(await WalkRouter.refine(found))
         guard !Task.isCancelled else { return }
         planned = refined
         journeys = refined

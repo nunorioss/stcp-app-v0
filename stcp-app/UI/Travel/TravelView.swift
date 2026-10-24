@@ -15,6 +15,11 @@ struct JourneyLink: Hashable {
 struct TravelView: View {
     @State private var model = TravelModel()
     @State private var picking: Field?
+    /// The departure being picked; only applied once the picker closes.
+    @State private var draftDeparture = Date.now
+    /// Fixed when the picker opens: a bound that keeps moving makes the picker snap back.
+    @State private var earliestDeparture = Date.now
+    @State private var isPickingDeparture = false
     @AppStorage("travel.sort") private var sort: JourneySort = .best
     @AppStorage("travel.liveOnly") private var liveOnly = false
     @Environment(\.scenePhase) private var scenePhase
@@ -37,13 +42,13 @@ struct TravelView: View {
     var body: some View {
         List {
             Section {
-                VStack(spacing: 0) {
-                    endpoints
-                    Divider()
-                        .padding(.leading, iconWidth + 12)
-                    departureRow
-                        .padding(.vertical, 10)
-                }
+                endpoints
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+            }
+            .listSectionSpacing(12)
+            Section {
+                departureRow
+                    .padding(.vertical, 6)
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
             }
             results
@@ -75,7 +80,7 @@ struct TravelView: View {
             locationProvider.stopTracking()
         }
         .task(id: TaskKey(search: model.searchKey, isActive: scenePhase == .active)) {
-            // debounce while the user is still scrolling the time picker
+            // debounce rapid changes, like location updates while walking
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled, scenePhase == .active else { return }
             await model.search()
@@ -140,25 +145,131 @@ struct TravelView: View {
         .buttonStyle(.plain)
     }
 
+    /// Depart | Arrive with Now below it; the time with −10 / +10 centered below it.
     private var departureRow: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .top, spacing: 12) {
             Image(systemName: "clock")
                 .font(.title2)
                 .foregroundStyle(.blue)
-                .frame(width: iconWidth)
-            Text("Depart")
-                .font(.system(.body, design: .rounded))
-            Spacer(minLength: 0)
-            if model.departure != nil {
-                Button("Now") { model.departure = nil }
+                .frame(width: iconWidth, height: 32)
+            VStack(alignment: .leading, spacing: 10) {
+                modePicker
+                if model.departure != nil {
+                    Button("Now") {
+                        model.arriveBy = false
+                        model.departure = nil
+                    }
+                    .font(.system(.subheadline, design: .rounded))
                     .buttonStyle(.borderless)
+                    .padding(.leading, 4)
+                    .frame(height: 30)
+                }
             }
-            DatePicker("Depart",
-                       selection: Binding(get: { model.departure ?? .now },
-                                          set: { model.departure = $0 }),
-                       displayedComponents: [.date, .hourAndMinute])
-                .labelsHidden()
+            Spacer(minLength: 0)
+            VStack(spacing: 10) {
+                timeButton
+                nudgeButtons
+            }
         }
+    }
+
+    private var timeButton: some View {
+        Button {
+            let thisMinute = Calendar.current.dateInterval(of: .minute, for: .now)?.start ?? .now
+            earliestDeparture = thisMinute
+            draftDeparture = max(model.departure ?? thisMinute, thisMinute)
+            isPickingDeparture = true
+        } label: {
+            Text(departureText)
+                .font(.system(.body, design: .rounded))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 11)
+                .padding(.vertical, 6)
+                .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.borderless)
+        .onChange(of: isPickingDeparture) { _, isOpen in
+            if !isOpen { commitDeparture() }
+        }
+        .popover(isPresented: $isPickingDeparture) {
+            DatePicker("Depart", selection: $draftDeparture, in: earliestDeparture...,
+                       displayedComponents: [.date, .hourAndMinute])
+                .datePickerStyle(.graphical)
+                .labelsHidden()
+                .padding(.horizontal)
+                .padding(.top, 8)
+                // only as tall as the calendar itself, which always keeps room for 6 weeks
+                .frame(width: 340)
+                .fixedSize()
+                .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    /// −10 / +10 min on the chosen time, for quick tweaks without the picker.
+    private var nudgeButtons: some View {
+        let base = model.departure ?? .now
+        let earlier = base.addingTimeInterval(-10 * 60)
+        // departing: going back past now means now; arriving can't be in the past
+        let canGoEarlier = model.departure != nil && (!model.arriveBy || earlier > .now)
+
+        return HStack(spacing: 8) {
+            nudgeButton("−10 min") {
+                model.departure = !model.arriveBy && earlier <= .now ? nil : earlier
+            }
+            .disabled(!canGoEarlier)
+            nudgeButton("+10 min") {
+                model.departure = base.addingTimeInterval(10 * 60)
+            }
+        }
+    }
+
+    private func nudgeButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(.subheadline, design: .rounded))
+                .fontWeight(.medium)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(Color(.tertiarySystemFill), in: Capsule())
+        }
+        .buttonStyle(.borderless)
+    }
+
+    /// Depart (leave at) or Arrive (by): both always visible, so switching is obvious.
+    private var modePicker: some View {
+        Picker("Time", selection: Binding(get: { model.arriveBy }, set: setArriveBy)) {
+            Text("Depart").tag(false)
+            Text("Arrive").tag(true)
+        }
+        .pickerStyle(.segmented)
+        .fixedSize()
+    }
+
+    /// "Arrive by now" means nothing, so arriving starts half an hour out.
+    private func setArriveBy(_ arriveBy: Bool) {
+        if arriveBy, model.departure == nil {
+            model.departure = Date.now.addingTimeInterval(30 * 60)
+        }
+        model.arriveBy = arriveBy
+    }
+
+    private var departureText: String {
+        let date = model.departure ?? .now
+        let day = Calendar.current.isDateInToday(date)
+            ? "Today"
+            : date.formatted(.dateTime.day().month(.abbreviated))
+        return "\(day), \(DateUtil.clockText(for: date))"
+    }
+
+    /// Searches again only if the picked minute actually differs.
+    private func commitDeparture() {
+        guard !Calendar.current.isDate(draftDeparture, equalTo: model.departure ?? .now,
+                                       toGranularity: .minute) else { return }
+        model.departure = draftDeparture
     }
 
     // MARK: - Results
@@ -172,13 +283,6 @@ struct TravelView: View {
             message("Finding your location", systemImage: "location",
                     description: "Allow location access or\nchoose a starting point")
         } else {
-            let walk = model.walkEstimate
-            if let walk {
-                Section {
-                    walkRow(meters: walk.meters, minutes: walk.minutes)
-                }
-            }
-
             if model.journeys.isEmpty {
                 if model.isSearching {
                     Section {
@@ -187,12 +291,13 @@ struct TravelView: View {
                             .padding(.vertical, 24)
                             .listRowBackground(Color.clear)
                     }
-                } else if walk == nil {
+                } else {
                     message("No routes found", systemImage: "bus",
                             description: "Try another time or destination")
                 }
             } else {
-                let shown = sort.sorted(model.journeys).filter { !liveOnly || $0.isLive }
+                // walk-only routes have no times to be live, so they always show
+                let shown = sort.sorted(model.journeys).filter { !liveOnly || $0.isLive || $0.rides.isEmpty }
                 CollapsibleSection("Routes", storageKey: "travel.routes", forceExpanded: true) {
                     if shown.isEmpty {
                         Text("No routes with live times right now")
@@ -202,9 +307,12 @@ struct TravelView: View {
                             .padding(.vertical, 12)
                     } else {
                         ForEach(shown) { journey in
-                            NavigationLink(value: JourneyLink(id: journey.id)) {
-                                JourneyRow(journey: journey)
-                            }
+                            // hidden link: the whole row opens the journey, without the chevron
+                            JourneyRow(journey: journey)
+                                .background {
+                                    NavigationLink(value: JourneyLink(id: journey.id)) { EmptyView() }
+                                        .opacity(0)
+                                }
                         }
                     }
                 } accessory: {
@@ -217,66 +325,8 @@ struct TravelView: View {
         }
     }
 
-    private func walkRow(meters: Double, minutes: Int) -> some View {
-        Button {
-            openWalkingDirections()
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "figure.walk")
-                    .font(.title2)
-                    .foregroundStyle(.green)
-                    .frame(width: iconWidth)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Walk there")
-                        .font(.system(.body, design: .rounded))
-                        .fontWeight(.semibold)
-                    Text("It's only about \(Journey.distanceText(meters)) away")
-                        .font(.system(.footnote, design: .rounded))
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 8)
-                HStack(alignment: .firstTextBaseline, spacing: 2) {
-                    Text("\(minutes)")
-                        .font(.system(.title2, design: .rounded))
-                        .fontWeight(.semibold)
-                    Text("min")
-                        .font(.system(.subheadline, design: .rounded))
-                        .foregroundStyle(.secondary)
-                }
-                Image(systemName: "arrow.up.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityHint("Opens walking directions in Maps")
-    }
-
-    private func openWalkingDirections() {
-        guard let from = model.place(for: model.origin)?.location,
-              let to = model.place(for: model.destination)?.location,
-              let url = URL(string: "maps://?saddr=\(from.latitude),\(from.longitude)&daddr=\(to.latitude),\(to.longitude)&dirflg=w")
-        else { return }
-        openURL(url)
-    }
-
     private var liveToggle: some View {
-        Button {
-            withAnimation(.snappy) { liveOnly.toggle() }
-        } label: {
-            Image(systemName: "dot.radiowaves.left.and.right")
-                .font(.title3)
-                .fontWeight(.medium)
-                .foregroundStyle(liveOnly ? Color.green : Color.secondary)
-                .frame(width: 36, height: 36)
-                .background(liveOnly ? Color.green.opacity(0.15) : Color.clear, in: Circle())
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Only routes with live times")
-        .accessibilityAddTraits(liveOnly ? .isSelected : [])
+        LiveToggle(isOn: $liveOnly, accessibilityLabel: "Only routes with live times")
     }
 
     private func message(_ title: String, systemImage: String, description: String) -> some View {

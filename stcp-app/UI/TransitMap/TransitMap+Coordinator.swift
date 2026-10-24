@@ -33,7 +33,10 @@ extension TransitMapRepresentable {
             if let shape {
                 mapView.addOverlays(shape.overlays)
                 mapView.addAnnotations(shape.segments.flatMap { segment in
-                    segment.stops.map { StopAnnotation(coordinate: $0, style: segment.style) }
+                    segment.stops.indices.map { i in
+                        StopAnnotation(coordinate: segment.stops[i], style: segment.style,
+                                       isEndpoint: i == 0 || i == segment.stops.count - 1)
+                    }
                 })
             }
 
