@@ -56,9 +56,14 @@ final class BusTracker {
 
     /// Live buses serving `lineIds`.
     func getLiveBuses(forLines lineIds: [String]) async -> [Bus] {
+        await getLiveReports(forLines: lineIds).map(Bus.init(report:))
+    }
+
+    /// Raw reports of the live buses serving `lineIds`, to build `Bus`es off the main thread.
+    func getLiveReports(forLines lineIds: [String]) async -> [BusReport] {
         await refreshIfCold(lines: lineIds)
         let lines = Set(lineIds)
-        return usableBuses { lines.contains($0.lineId) }
+        return usableReports { lines.contains($0.lineId) }
     }
 
     /// One live bus by id. `lineId` is an optional hint that makes a cold-cache
@@ -70,7 +75,7 @@ final class BusTracker {
     /// Live buses by id. Ids with no recent usable report are left out.
     func getLiveBuses(ids: Set<String>, lineIds: Set<String>? = nil) async -> [Bus] {
         await refreshIfCold(lines: lineIds.map(Array.init))
-        return usableBuses { ids.contains($0.id) }
+        return usableReports { ids.contains($0.id) }.map(Bus.init(report:))
     }
 
     // MARK: - Helpers
@@ -92,11 +97,10 @@ final class BusTracker {
         if let fresh { ingest(fresh) }
     }
 
-    private func usableBuses(where matches: (BusReport) -> Bool) -> [Bus] {
+    private func usableReports(where matches: (BusReport) -> Bool) -> [BusReport] {
         let now = Date()
         return reports.values
             .filter { matches($0) && now.timeIntervalSince($0.timestamp) <= maxStaleness }
-            .map(Bus.init(report:))
     }
 
     // MARK: - Tracking

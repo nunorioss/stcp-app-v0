@@ -12,16 +12,13 @@ struct StopView: View {
     let stop: BusStop
     
     /// True if `route` terminates at this stop: nobody boards there, so it goes under "Arrivals".
-    /// Uses the first occurrence of the stop, the same one `Estimator.estimate` uses, so the
-    /// start of a circular line (first and last stop are the same) still shows its departures.
     private func endsHere(_ route: Route) -> Bool {
-        let stops = route.stops
-        return stops.firstIndex(where: { $0.id == stop.id }) == stops.count - 1
+        route.ends(at: stop)
     }
 
     @State private var lines: [LineArrivalGroup] = []
     @State private var scheduled: [Arrival] = []
-    @State private var live = Estimator.LiveData()
+    @State private var reports: [BusReport] = []
     @State private var stcpETAs: [String: Date] = [:]
     @State private var buses: [Bus] = []
     @Environment(\.scenePhase) private var scenePhase
@@ -29,6 +26,7 @@ struct StopView: View {
     @State private var arrivals: [Arrival] = []        // replaces `lines`
     @State private var farTripIds: Set<String> = []    // trips that came from getNextScheduledArrival
     @State private var showFar = false
+    @State private var hasLoaded = false   // scheduled arrivals fetched at least once
 
     private let refreshInterval: Duration = .seconds(10)
     
@@ -101,11 +99,13 @@ struct StopView: View {
 
     var body: some View {
             List {
-                CollapsibleSection("Map", storageKey: "stopview.map") {
-                    TransitMapRepresentable(shape: .empty,
-                                            buses: buses, focus: stop.location.coordinate)
-                        .frame(height: 240)
-                        .listRowInsets(EdgeInsets())
+                if hasLoaded {
+                    CollapsibleSection("Map", storageKey: "stopview.map") {
+                        TransitMapRepresentable(shape: .empty,
+                                                buses: buses, focus: stop.location.coordinate)
+                            .frame(height: 240)
+                            .listRowInsets(EdgeInsets())
+                    }
                 }
                 
                 CollapsibleSection("Departures", storageKey: "stopview.departures", forceExpanded: true) {
@@ -149,21 +149,17 @@ struct StopView: View {
         }
         .refreshable {
             await refreshSchedule()
-            live = await Estimator.fetchLiveDataFromPortoDigital(for: stop)
-            regroup()
+            await refreshLive()
         }
         .task(id: scenePhase) { await poll { await refreshSchedule() } }
         .task(id: scenePhase) {
-            await poll {
-                live = await Estimator.fetchLiveDataFromPortoDigital(for: stop)
-                regroup()
-            }
+            await poll { await refreshLive() }
         }
         .task(id: scenePhase) {
             await poll {
                 // keep the previous ETAs if the request fails
                 stcpETAs = (try? await STCPFetcher.getLiveETAs(for: stop.id)) ?? stcpETAs
-                regroup()
+                await regroup()
             }
         }
         // restarts only when the set of buses (or scene phase) changes
@@ -194,62 +190,26 @@ struct StopView: View {
         }
     }
 
-    /// Scheduled arrivals only. No network, so it's instant.
-    /// On top of what the estimator returns, adds the next scheduled arrival of every
-    /// master route serving this stop (possibly hours or days away), so lines with
-    /// nothing due soon still show up.
-    /// 
+    /// Scheduled arrivals only, built off the main thread.
     private func refreshSchedule() async {
-        var arrivals = Estimator.estimate(for: stop, within: 75)
-        var tripIds = Set(arrivals.map(\.tripId))
-        var far: Set<String> = []
-
-        for route in stop.routes where route.isMasterRoute && !endsHere(route) {
-            guard let (tripId, eta) = DataStore.getNextScheduledArrival(at: stop,
-                                                                        line: route.line,
-                                                                        direction: route.direction),
-                  tripIds.insert(tripId).inserted,   // skip if the estimator already has it
-                  let trip = DataStore.getTrip(id: tripId),
-                  !endsHere(trip.route)
-            else { continue }
-            
-            far.insert(tripId)
-
-            
-            arrivals.append(Arrival(
-                tripId: tripId,
-                lineId: route.line.id,
-                routeId: route.persistentModelID,
-                routeSortIndex: route.sortIndex,
-                scheduledEta: eta,
-                live: nil)
-            )
-        }
+        let (arrivals, far) = await StopArrivals.shared.scheduled(stopId: stop.id)
         farTripIds = far
         scheduled = arrivals
+        hasLoaded = true
+        await regroup()
+    }
 
-        regroup()
+    private func refreshLive() async {
+        reports = await BusTracker.shared.getLiveReports(forLines: Estimator.liveLineIds(for: stop))
+        await regroup()
     }
     
-    /// Schedule, then Porto Digital (with inference), then STCP.
-    private func regroup() {
-        let withLive = Estimator.applyLiveDataFromPortoDigital(live, to: scheduled, for: stop)
-        let merged = Estimator.applyETAsFromSTCP(stcpETAs, to: withLive, for: stop, live: live)
-
-        let pd = withLive.filter { $0.live?.inferred == false }.count
-        let inferred = withLive.filter { $0.live?.inferred == true }.count
-        let stcp = merged.filter { $0.live?.source == .stcp }.count
-        print("[\(stop.id)] \(scheduled.count) scheduled | porto digital: \(pd) live, \(inferred) inferred "
-              + "| stcp: \(stcpETAs.count) received, \(stcp) applied")
-        
-        let stcpApplied = merged.filter { $0.live?.source == .stcp }
-
-        for a in stcpApplied {
-            print("[\(stop.id)]   stcp → \(a.line.shortName) \(a.route.headsign) | \(a.tripId) "
-                  + "| eta \(a.eta.formatted(date: .omitted, time: .standard)) "
-                  + "(scheduled \(a.scheduledEta.formatted(date: .omitted, time: .standard)))")
-        }
-
+    /// Schedule, then Porto Digital (with inference), then STCP, off the main thread.
+    private func regroup() async {
+        let merged = await StopArrivals.shared.merge(stopId: stop.id,
+                                                     scheduled: scheduled,
+                                                     reports: reports,
+                                                     stcpETAs: stcpETAs)
         lines = merged.groupedByLine()
         arrivals = merged
     }

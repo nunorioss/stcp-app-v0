@@ -9,7 +9,7 @@ import Foundation
 import SwiftData
 
 @Model
-public final class Route {
+nonisolated public final class Route {
     
     @Relationship(inverse: \BusLine.storedRoutes)
     public private(set) var line: BusLine
@@ -74,5 +74,15 @@ public final class Route {
         self.sortIndex = sortIndex
         self.direction = direction
         self.headsign = headsign
+    }
+}
+
+nonisolated extension Route {
+    /// True if the route terminates at `stop`: nobody boards there. Uses the first occurrence
+    /// of the stop, the same one `Estimator.estimate` uses, so the start of a circular line
+    /// (first and last stop are the same) still counts as a departure.
+    func ends(at stop: BusStop) -> Bool {
+        let stops = self.stops
+        return stops.firstIndex(where: { $0.id == stop.id }) == stops.count - 1
     }
 }

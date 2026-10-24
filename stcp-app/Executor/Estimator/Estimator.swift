@@ -8,7 +8,7 @@
 import Foundation
 import SwiftData
 
-enum Estimator {
+nonisolated enum Estimator {
     struct LiveData {
         // buses that serve the desired stop (line + direction)
         var buses: [Bus] = []

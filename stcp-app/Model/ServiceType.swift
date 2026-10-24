@@ -7,7 +7,7 @@
 
 import Foundation
 
-public enum ServiceType: Int, Codable {
+nonisolated public enum ServiceType: Int, Codable {
     private static let weekdayServiceId = "DIAS UTEIS"
     private static let saturdayServiceId = "SÁBADOS"
     private static let sundayServiceId = "DOMINGOS|FERIADOS"

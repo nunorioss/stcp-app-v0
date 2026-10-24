@@ -8,7 +8,7 @@
 import SwiftData
 
 @Model
-public final class ServiceDate {
+nonisolated public final class ServiceDate {
     
     // yyyymmdd
     @Attribute(.unique)

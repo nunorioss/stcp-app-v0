@@ -9,7 +9,7 @@ import Foundation
 import SwiftData
 
 @Model
-public final class TripStop {
+nonisolated public final class TripStop {
     #Index<TripStop>([\.serviceTypeRaw, \.etaNumeric])
 
     @Relationship(inverse: \Trip.storedTripStops)

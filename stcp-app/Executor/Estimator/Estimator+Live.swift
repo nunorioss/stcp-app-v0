@@ -8,23 +8,23 @@
 import Foundation
 import SwiftData
 
-extension Estimator {
-    /// Fetches live data for a bus stop from PortoDigital.
-    static func fetchLiveDataFromPortoDigital(for stop: BusStop) async -> LiveData {
+nonisolated extension Estimator {
+    /// Lines whose buses matter to a bus stop: the ones it serves + their sister lines.
+    static func liveLineIds(for stop: BusStop) -> [String] {
+        Array(Set(stop.routes.flatMap { [$0.line.id] + $0.line.sisterLineIds }))
+    }
+
+    /// Live data for a bus stop, from the PortoDigital reports of `liveLineIds(for:)`.
+    static func liveData(from reports: [BusReport], for stop: BusStop) -> LiveData {
         struct LineDirection: Hashable, Sendable {
             let lineId: String
             let direction: Bool
         }
         
-        // get buses for lines that the stop serves + their sister lines
-
-        let routes = stop.routes
-        let pairs = Set(routes.map {
+        let pairs = Set(stop.routes.map {
             LineDirection(lineId: $0.line.id, direction: $0.direction) }
         )
-        let lineIds = Set(routes.flatMap { [$0.line.id] + $0.line.sisterLineIds })
-        
-        let all = await BusTracker.shared.getLiveBuses(forLines: Array(lineIds))
+        let all = reports.map(Bus.init(report:))
 
         // separate into: line+direction that serves the stop vs. others
         var data = LiveData()

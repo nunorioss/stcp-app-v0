@@ -8,23 +8,34 @@
 import SwiftData
 import CoreLocation
 
-@MainActor
-enum DataStore {
+nonisolated enum DataStore {
+    /// A context that is only used by the task that set it, so it never actually crosses threads.
+    struct TaskContext: @unchecked Sendable {
+        let context: ModelContext
+    }
+
+    /// Queries run on the main context, unless a task sets its own context here
+    /// (`$taskContext.withValue`), as `StopArrivals` does to run off the main thread.
+    @TaskLocal static var taskContext: TaskContext?
+
     private static var context: ModelContext {
-        SwiftDataManager.context
+        if let taskContext {
+            return taskContext.context
+        }
+        return MainActor.assumeIsolated { TaskContext(context: SwiftDataManager.context) }.context
     }
     
     private static func fetch<T: PersistentModel>(_ descriptor: FetchDescriptor<T>) -> [T] {
         (try? context.fetch(descriptor)) ?? []
     }
     
-    private static var cachedGlobalTripNo: String?
+    nonisolated(unsafe) private static var cachedGlobalTripNo: String?
 
     /// Retrieves the global, magic trip number for the dataset.
     static var globalTripNo: String {
         if cachedGlobalTripNo == nil {
             do {
-                print("TripConfig rows:", try SwiftDataManager.context.fetch(FetchDescriptor<TripConfig>()).count)
+                print("TripConfig rows:", try context.fetch(FetchDescriptor<TripConfig>()).count)
             } catch {
                 print("TripConfig fetch failed:", error)
             }

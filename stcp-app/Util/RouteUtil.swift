@@ -8,7 +8,7 @@
 import Foundation
 
 
-enum RouteUtil {
+nonisolated enum RouteUtil {
 
     static func tripProgress(busLocation: GeoPoint, along stops: [BusStop]) -> TripProgress? {
         guard stops.count > 1 else {

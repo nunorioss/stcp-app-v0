@@ -8,7 +8,7 @@
 import SwiftData
 
 @Model
-public final class RouteStop {
+nonisolated public final class RouteStop {
     
     @Relationship(inverse: \Route.storedRouteStops)
     public private(set) var route: Route

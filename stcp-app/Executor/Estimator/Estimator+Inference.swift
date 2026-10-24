@@ -7,7 +7,7 @@
 
 import Foundation
 
-extension Estimator {
+nonisolated extension Estimator {
     private static let maxInferenceHops = 3
 
     // A bus further behind than 1h is not trusted

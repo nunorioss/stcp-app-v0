@@ -8,7 +8,7 @@
 import Foundation
 import SwiftData
 
-enum SwiftDataManager {
+nonisolated enum SwiftDataManager {
     static let storeName = STCPSchema.storeName
     static let schema = STCPSchema.schema
 

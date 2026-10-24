@@ -8,7 +8,7 @@
 
 import Foundation
  
-public struct Bus: Identifiable {
+nonisolated public struct Bus: Identifiable {
  
     public let id: String
  
@@ -46,9 +46,8 @@ public struct Bus: Identifiable {
     }
 }
  
-extension Bus {
+nonisolated extension Bus {
     /// Builds a Bus from a raw report: matches its trip and infers its progress along it.
-    @MainActor
     init(report: BusReport) {
         let location = GeoPoint(latitude: report.latitude, longitude: report.longitude)
  

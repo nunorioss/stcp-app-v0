@@ -7,7 +7,7 @@
 
 import SwiftData
 
-public enum STCPSchema {
+nonisolated public enum STCPSchema {
     
     public static let storeName = "stcp.store"
     

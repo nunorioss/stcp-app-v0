@@ -5,7 +5,7 @@
 //  Created by Nuno Rios on 13/10/2026.
 //
 
-enum LiveTripMatcher {
+nonisolated enum LiveTripMatcher {
     // how far outside its scheduled window a bus may be
     // and still count as running that trip
     static let maxEarly = 20 * 60 //20min

@@ -8,7 +8,7 @@
 import SwiftData
 
 @Model
-public final class TripConfig {
+nonisolated public final class TripConfig {
     @Attribute(.unique)
     public private(set) var id: String = "main"
     

@@ -7,13 +7,13 @@
 
 import Foundation
 
-public struct TripProgress {
+nonisolated public struct TripProgress {
     let lastStopIndex: Int
     // 0..1 from lastStop -> nextStop
     let progress: Double
 }
 
-public struct RouteGeometry {
+nonisolated public struct RouteGeometry {
     private static let metersPerLat = 111_320.0
 
     private let originLat: Double

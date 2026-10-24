@@ -9,7 +9,7 @@ import SwiftData
 import SwiftUI
 
 @Model
-public final class BusLine: Identifiable {
+nonisolated public final class BusLine: Identifiable {
     
     @Attribute(.unique)
     public private(set) var id: String
@@ -22,8 +22,8 @@ public final class BusLine: Identifiable {
     private var backgroundRGB: Int
     private var foregroundRGB: Int
     
-    public var backgroundColor: Color { Color(backgroundRGB) }
-    public var foregroundColor: Color { Color(foregroundRGB) }
+    @MainActor public var backgroundColor: Color { Color(backgroundRGB) }
+    @MainActor public var foregroundColor: Color { Color(foregroundRGB) }
     
     public internal(set) var isAccessible: Bool?
     

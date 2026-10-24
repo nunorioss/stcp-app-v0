@@ -7,7 +7,7 @@
 
 import CoreLocation
 
-enum Geohash {
+nonisolated enum Geohash {
     private static let base32 = Array("0123456789bcdefghjkmnpqrstuvwxyz")
     private static let base32Map: [Character: Int] = {
         Dictionary(uniqueKeysWithValues: base32.enumerated().map { ($1, $0) })

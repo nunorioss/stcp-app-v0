@@ -9,7 +9,7 @@ import Foundation
 import SwiftData
 
 @Model
-public final class BusStop: Identifiable {
+nonisolated public final class BusStop: Identifiable {
     #Index<BusStop>([\.nameKey], [\.geohash5], [\.geohash6], [\.geohash7])
     
     @Attribute(.unique)
