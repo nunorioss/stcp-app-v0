@@ -87,7 +87,16 @@ struct StopList: View {
         let isSearching = !query.isEmpty
           
         List {
+            Section {
+                SearchField(text: $searchText, prompt: "Search stops")
+            }
+
             if isSearching {
+                if resultsQuery == query, results.isEmpty {
+                    ContentUnavailableView.search(text: query)
+                        .listRowBackground(Color.clear)
+                }
+
                 ForEach(results, id: \.id) { StopRow(stop: $0, showLineBadges: true) }
 
                 if matchCount > results.count {
@@ -120,25 +129,22 @@ struct StopList: View {
                     }
                 }
                 
-                // Suggest user to search
-                Section {
-                    ContentUnavailableView(
-                        "Search for a bus stop",
-                        systemImage: "magnifyingglass",
-                        description: Text("Swipe down to search\n for any STCP bus stop")
-                    )
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
+                if favoriteStops.isEmpty && nearbyStops.isEmpty {
+                    // Suggest user to search
+                    Section {
+                        ContentUnavailableView(
+                            "Search for a bus stop",
+                            systemImage: "magnifyingglass",
+                            description: Text("Find any STCP bus stop\nby its name or code.")
+                        )
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                    }
                 }
             }
         }
         .navigationDestination(for: BusStop.self) {
             StopView(stop: $0)
-        }
-        .overlay {
-            if isSearching, resultsQuery == query, results.isEmpty {
-                ContentUnavailableView.search(text: searchText)
-            }
         }
         // once the screen is up
         .task {
@@ -170,10 +176,7 @@ struct StopList: View {
             // compute when the user expands it
             if !collapsed { refreshNearby() }
         }
-        .searchable(text: $searchText,
-                    placement: .navigationBarDrawer(displayMode: .automatic),
-                    prompt: "Search stops")
-        .autocorrectionDisabled()
+        .scrollDismissesKeyboard(.immediately)
         .navigationTitle("Stops")
     }
 }
