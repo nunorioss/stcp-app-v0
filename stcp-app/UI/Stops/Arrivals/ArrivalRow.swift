@@ -43,7 +43,7 @@ struct ArrivalRow: View {
         
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                LineBadge(busLine: first.line, scale: 0.8)
+                LineBadge(busLine: first.line, scale: 0.85)
                     .padding(.trailing, 2)
      
                 Text(first.route.headsign)

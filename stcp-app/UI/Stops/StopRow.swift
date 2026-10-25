@@ -54,7 +54,7 @@ struct StopRow: View {
     
     var body: some View {
          swipeable(HStack {
-             VStack(alignment: .leading, spacing: 5) {
+             VStack(alignment: .leading, spacing: 7) {
                  if showAlias, let alias {
                      Text(alias)
                          .font(.system(.body, design: .rounded))
@@ -70,11 +70,11 @@ struct StopRow: View {
                  if showLineBadges {
                      let lines = stop.lines.sorted { $0.shortName < $1.shortName }
 
-                     VStack(alignment: .leading, spacing: 4) {
+                     VStack(alignment: .leading, spacing: 5) {
                          ForEach(Array(stride(from: 0, to: lines.count, by: badgesPerRow)), id: \.self) { start in
                              HStack(spacing: 4) {
                                  ForEach(lines[start..<min(start + badgesPerRow, lines.count)]) { line in
-                                     LineBadge(busLine: line, scale: 0.5)
+                                     LineBadge(busLine: line, scale: 0.6)
                                  }
                              }
                          }
