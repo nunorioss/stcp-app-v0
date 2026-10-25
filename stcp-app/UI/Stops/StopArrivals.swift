@@ -68,7 +68,7 @@ final class StopArrivals {
     }
 
     func refreshLive() async {
-        live = await Estimator.fetchLiveDataFromPortoDigital(for: stop)
+        live = await Estimator.fetchLiveData(for: stop)
         merge()
     }
 
@@ -98,9 +98,7 @@ final class StopArrivals {
 
     private func merge() {
         // Scheduled, + the live buses
-        let withLive = Estimator.applyLiveDataFromPortoDigital(live,
-                                                               to: scheduled + far.values,
-                                                               for: stop)
+        let withLive = Estimator.applyLiveData(live, to: scheduled + far.values, for: stop)
         // + STCP's ETAs
         arrivals = Estimator.applyETAsFromSTCP(stcpETAs, to: withLive, for: stop, live: live)
         
