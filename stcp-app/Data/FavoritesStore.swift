@@ -21,22 +21,11 @@ final class FavoritesStore: ObservableObject {
     private static let linesKey = "favoriteLineIds"
     private static let aliasesKey = "stopAliases"
     
-    // stops are sorted by ID
-    private static func sortedStopIDs(_ ids: [String]) -> [String] {
-        ids.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-    }
-    
-    // lines are sorted by ID, but dawn "M" lines are at the bottom
-    private static func sortedLineIDs(_ ids: [String]) -> [String] {
-        ids.sorted { a, b in
-            let aIsDawn = a.hasSuffix("M")
-            let bIsDawn = b.hasSuffix("M")
-
-            if aIsDawn != bIsDawn {
-                return bIsDawn
-            }
-            return a.localizedStandardCompare(b) == .orderedAscending
-        }
+    // IDs in the order of "shown"
+    //any not shown (gone from the data) stay at the end
+    private static func reordered(_ ids: [String], as shown: [String]) -> [String] {
+        let shownSet = Set(shown)
+        return shown.filter(ids.contains) + ids.filter { !shownSet.contains($0) }
     }
 
     @Published private(set) var stopIds: [String] {
@@ -64,7 +53,6 @@ final class FavoritesStore: ObservableObject {
         aliases = defaults.dictionary(forKey: Self.aliasesKey) as? [String: String] ?? [:]
     }
     
-    /// Gets the user's favorite bus stops.
     var getFavoriteStops: [BusStop] {
         stopIds.compactMap { DataStore.getBusStop(id: $0) }
     }
@@ -78,11 +66,14 @@ final class FavoritesStore: ObservableObject {
             stopIds.remove(at: index)
             aliases[stopId] = nil
         } else {
-            stopIds = Self.sortedStopIDs(stopIds + [stopId])
+            stopIds.append(stopId)
         }
     }
 
-    /// Gets the user's favorite bus lines.
+    func reorderStops(_ ids: [String]) {
+        stopIds = Self.reordered(stopIds, as: ids)
+    }
+
     var getFavoriteLines: [BusLine] {
         lineIds.compactMap { DataStore.getBusLine(id: $0) }
     }
@@ -95,8 +86,12 @@ final class FavoritesStore: ObservableObject {
         if let index = lineIds.firstIndex(of: lineId) {
             lineIds.remove(at: index)
         } else {
-            lineIds = Self.sortedLineIDs(lineIds + [lineId])
+            lineIds.append(lineId)
         }
+    }
+
+    func reorderLines(_ ids: [String]) {
+        lineIds = Self.reordered(lineIds, as: ids)
     }
 
     /// Gets the user's set alias for a bus stop.

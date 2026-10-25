@@ -14,15 +14,19 @@ struct StopRow: View {
     let showAlias: Bool
     let showLineBadges: Bool
     
+    let swipeActions: Bool
+    
     @State private var isEditingAlias = false
     @State private var aliasDraft = ""
     
     private let badgesPerRow = 5
     
-    init(stop: BusStop, showAlias: Bool = false, showLineBadges: Bool = false) {
+    init(stop: BusStop, showAlias: Bool = false,
+         showLineBadges: Bool = false, swipeActions: Bool = true) {
         self.stop = stop
         self.showAlias = showAlias
         self.showLineBadges = showLineBadges
+        self.swipeActions = swipeActions
     }
     
     /// The user's nickname/alias for this stop, if one is set.
@@ -30,8 +34,26 @@ struct StopRow: View {
         favorites.getStopAlias(for: stop.id)
     }
     
+    /// Adds the favorite / rename swipe actions, unless turned off.
+    @ViewBuilder
+    private func swipeable(_ row: some View) -> some View {
+        if swipeActions {
+            row
+                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    favoriteStopButton
+                }
+                .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                    if favorites.isFavorite(stop: stop.id) {
+                        renameStopButton
+                    }
+                }
+        } else {
+            row
+        }
+    }
+    
     var body: some View {
-         HStack {
+         swipeable(HStack {
              VStack(alignment: .leading, spacing: 5) {
                  if showAlias, let alias {
                      Text(alias)
@@ -65,15 +87,7 @@ struct StopRow: View {
 
              StopBadge(id: stop.id)
          }
-         .padding(.vertical, 2)
-         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-             favoriteStopButton
-         }
-         .swipeActions(edge: .leading, allowsFullSwipe: false) {
-             if favorites.isFavorite(stop: stop.id) {
-                 renameStopButton
-             }
-         }
+         .padding(.vertical, 2))
          .background {
              NavigationLink(value: stop) { EmptyView() }
                  .opacity(0)

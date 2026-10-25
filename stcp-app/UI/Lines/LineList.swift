@@ -17,9 +17,17 @@ struct LineList: View {
         $0.id.localizedStandardCompare($1.id) == .orderedAscending
     }
     
-    // Dawn lines' IDs end with "M"
-    private static let dawnLines: [BusLine] = allLines.filter { $0.id.hasSuffix("M") }
-    private static let regularLines: [BusLine] = allLines.filter { !$0.id.hasSuffix("M") }
+    // Dawn line IDs end with "M"
+    private static let dawnLines: [BusLine] = allLines
+        .filter { $0.id.hasSuffix("M") && !isSpecial($0) }
+    private static let regularLines: [BusLine] = allLines
+        .filter { !$0.id.hasSuffix("M") && !isSpecial($0) }
+    
+    // Special lines contain "special"/"especial"
+    nonisolated private static func isSpecial(_ line: BusLine) -> Bool {
+        line.longName.localizedStandardContains("special")
+    }
+    private static let specialLines: [BusLine] = allLines.filter(isSpecial)
     
     // Case- and accent-insensitive match on the short or long name
     private func filtered(_ lines: [BusLine], by query: String) -> [BusLine] {
@@ -49,7 +57,10 @@ struct LineList: View {
                 
                 if !favoriteLines.isEmpty {
                     CollapsibleSection("Favorites", storageKey: "lines.favorites") {
-                        ForEach(favoriteLines, id: \.id) { LineRow(line: $0) }
+                        ReorderableForEach(favoriteLines, id: \.id,
+                                           onReorder: { favorites.reorderLines($0.map(\.id)) }) {
+                            LineRow(line: $0)
+                        }
                     }
                 }
                 
@@ -67,6 +78,12 @@ struct LineList: View {
                     }
                     CollapsibleSection("Dawn lines", storageKey: "lines.dawn") {
                         ForEach(Self.dawnLines, id: \.id) { LineRow(line: $0) }
+                    }
+                }
+                
+                if !Self.specialLines.isEmpty {
+                    CollapsibleSection("Special lines", storageKey: "lines.special") {
+                        ForEach(Self.specialLines, id: \.id) { LineRow(line: $0) }
                     }
                 }
             }

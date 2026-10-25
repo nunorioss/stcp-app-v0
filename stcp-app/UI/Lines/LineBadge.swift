@@ -13,6 +13,8 @@ struct LineBadge: View {
     let foregroundColor: Color
     let scale: CGFloat
     
+    @Environment(\.colorScheme) private var colorScheme
+    
     @ScaledMetric(relativeTo: .headline) private var fontSize: CGFloat = 14
     @ScaledMetric(relativeTo: .headline) private var paddingV: CGFloat = 8
     @ScaledMetric(relativeTo: .headline) private var paddingH: CGFloat = 15
@@ -35,6 +37,12 @@ struct LineBadge: View {
         self.scale = CGFloat(scale)
     }
     
+    // A white badge disappears on a light background:
+    //outline it, in its text color
+    private var needsBorder: Bool {
+        colorScheme == .light && backgroundColor.isWhite
+    }
+    
     var body: some View {
             Text(shortName)
             .font(.system(size: fontSize * scale, weight: .bold, design: .monospaced))
@@ -45,6 +53,12 @@ struct LineBadge: View {
                     RoundedRectangle(cornerRadius: cornerRadius * scale)
                         .fill(backgroundColor)
                 )
+                .overlay {
+                    if needsBorder {
+                        RoundedRectangle(cornerRadius: cornerRadius * scale)
+                            .strokeBorder(foregroundColor.opacity(0.5), lineWidth: 1)
+                    }
+                }
         }
 }
 

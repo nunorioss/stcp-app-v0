@@ -80,7 +80,10 @@ struct StopList: View {
                 
                 if !favoriteStops.isEmpty {
                     CollapsibleSection("Favorites", storageKey: "stops.favorites") {
-                        ForEach(favoriteStops, id: \.id) { StopRow(stop: $0, showAlias: true) }
+                        ReorderableForEach(favoriteStops, id: \.id,
+                                           onReorder: { favorites.reorderStops($0.map(\.id)) }) {
+                            StopRow(stop: $0, showAlias: true)
+                        }
                     }
                 }
                 
