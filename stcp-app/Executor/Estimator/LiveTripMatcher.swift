@@ -20,7 +20,7 @@ enum LiveTripMatcher {
 
     static func matchLiveTrip(_ reportedTripId: String,
                               _ nowSeconds: Int = DateUtil.secondsSinceMidnight()) -> Trip? {
-        guard let reported = fetchBusTrip(reportedTripId) else {
+        guard let reported = DataStore.getLiveTrip(id: reportedTripId) else {
             return nil
         }
         
@@ -43,17 +43,6 @@ enum LiveTripMatcher {
         // no confidence match:
         // keep what the stale feed gave us
         return reported
-    }
-    
-    private static func fetchBusTrip(_ tripId: String) -> Trip? {
-        var parts = tripId.split(separator: "|", omittingEmptySubsequences: false)
-            .map(String.init)
-        guard parts.count > 1 else {
-            return nil
-        }
-        // replace "magic" trip no. with stored value
-        parts[1] = DataStore.globalTripNo
-        return DataStore.getTrip(id: parts.joined(separator: "|"))
     }
     
     private static func isPlausible(_ trip: Trip, nowSeconds: Int) -> Bool {

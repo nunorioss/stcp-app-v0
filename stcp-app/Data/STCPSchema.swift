@@ -15,10 +15,10 @@ public enum STCPSchema {
         BusLine.self,
         BusStop.self,
         Route.self,
+        Path.self,
         RouteStop.self,
         Trip.self,
         TripStop.self,
-        ServiceDate.self,
-        TripConfig.self
+        ServiceDate.self
     ])
 }

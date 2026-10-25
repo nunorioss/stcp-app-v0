@@ -9,8 +9,8 @@ import Foundation
 import SwiftData
 
 extension Estimator {
-    /// Fetches live data for a bus stop from PortoDigital.
-    static func fetchLiveDataFromPortoDigital(for stop: BusStop) async -> LiveData {
+    /// Fetches live bus data for a bus stop.
+    static func fetchLiveData(for stop: BusStop) async -> LiveData {
         struct LineDirection: Hashable, Sendable {
             let lineId: String
             let direction: Bool
@@ -24,7 +24,7 @@ extension Estimator {
         )
         let lineIds = Set(routes.flatMap { [$0.line.id] + $0.line.sisterLineIds })
         
-        let all = await BusTracker.shared.getLiveBuses(forLines: Array(lineIds))
+        let all = await BusTracker.shared.getLiveBuses(lineIds: Array(lineIds))
 
         // separate into: line+direction that serves the stop vs. others
         var data = LiveData()
@@ -42,9 +42,9 @@ extension Estimator {
     }
     
     
-    /// Fetches live data for a bus line from PortoDigital.
-    static func fetchLiveDataFromPortoDigital(for line: BusLine, direction: Bool) async -> LiveData {
-        let all = await BusTracker.shared.getLiveBuses(forLines: [line.id] + line.sisterLineIds)
+    /// Fetches live bus data for a bus line.
+    static func fetchLiveData(for line: BusLine, direction: Bool) async -> LiveData {
+        let all = await BusTracker.shared.getLiveBuses(lineIds: [line.id] + line.sisterLineIds)
         var data = LiveData()
         
         for bus in all {
@@ -61,8 +61,8 @@ extension Estimator {
     }
     
     
-    /// Merges PortoDigital live data for a bus stop with scheduled Arrivals.
-    static func applyLiveDataFromPortoDigital(_ live: LiveData,
+    /// Merges live bus data for a bus stop with scheduled Arrivals.
+    static func applyLiveData(_ live: LiveData,
                                           to arrivals: [Arrival],
                                           for stop: BusStop) -> [Arrival] {
         let now = Date()
@@ -118,8 +118,8 @@ extension Estimator {
         return Array(byTrip.values)
     }
     
-    /// Merges PortoDigital live data with scheduled Arrivals of a line/direction keyed by stop id.
-    static func applyPortoDigitalLiveData(_ live: LiveData,
+    /// Merges live bus data with scheduled Arrivals of a line/direction keyed by stop id.
+    static func applyLiveData(_ live: LiveData,
                                           to arrivals: [String: [Arrival]],
                                           line: BusLine,
                                           direction: Bool) -> [String: [Arrival]] {
