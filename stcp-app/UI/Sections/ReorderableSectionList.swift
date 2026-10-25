@@ -15,9 +15,13 @@ extension EnvironmentValues {
 // A List whose sections can be reordered by long-pressing their header and dragging.
 struct ReorderableSectionList<Item, Content: View>: View
 where Item: RawRepresentable & Hashable, Item.RawValue == String {
-
-    // sections to show, in their default order
+    // every section, in its default order
     let items: [Item]
+    
+    // sections with nothing to show
+    //they only appear while reordering, so they can still be put in place
+    let hidden: Set<Item>
+    
     let content: (Item) -> Content
 
     // ids in the user's order (saved by the model on drop); can include hidden sections
@@ -25,9 +29,11 @@ where Item: RawRepresentable & Hashable, Item.RawValue == String {
     @State private var model: SectionReorderModel
 
     init(_ items: [Item],
+         hidden: Set<Item> = [],
          orderKey: String,
          @ViewBuilder content: @escaping (Item) -> Content) {
         self.items = items
+        self.hidden = hidden
         self.content = content
         _savedOrder = AppStorage(wrappedValue: "", orderKey)
         _model = State(initialValue: SectionReorderModel(orderKey: orderKey))
@@ -45,7 +51,7 @@ where Item: RawRepresentable & Hashable, Item.RawValue == String {
         let orderedItems = orderedItems
 
         List {
-            ForEach(orderedItems, id: \.self) { item in
+            ForEach(orderedItems.filter { model.isDragging || !hidden.contains($0) }, id: \.self) { item in
                 content(item)
                     .environment(\.sectionReorderID, item.rawValue)
             }

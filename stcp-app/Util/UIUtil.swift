@@ -16,11 +16,3 @@ extension Color {
         self.init(.sRGB, red: r, green: g, blue: b, opacity: 1)
     }
 }
-
-// A header slightly shifted to the left to match the Navigation "Title"
-public func sectionHeader(_ title: String) -> some View {
-    Text(title)
-        .font(.title3)
-        .bold()
-        .padding(.leading, -14)
-}
