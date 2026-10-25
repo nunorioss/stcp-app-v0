@@ -45,7 +45,7 @@ public final class Route {
     public internal(set) var trips: [Trip] = []
     
     @Transient private var cachedStops: [BusStop]?
-    
+
     public var stops: [BusStop] {
         if let cachedStops {
             return cachedStops
@@ -53,17 +53,6 @@ public final class Route {
         let result = routeStops.map(\.stop)
         cachedStops = result
         return result
-    }
-    
-    @Transient private var cachedGeometry: RouteGeometry?
-    
-    public var geometry: RouteGeometry? {
-        if let cachedGeometry {
-            return cachedGeometry
-        }
-        let g = RouteGeometry(coords: stopCoords)
-        cachedGeometry = g
-        return g
     }
     
     public init(line: BusLine,

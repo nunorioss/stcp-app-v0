@@ -9,24 +9,23 @@ import SwiftUI
 
 struct CollapsibleSection<Content: View, Accessory: View>: View {
     let title: String
-    let forceExpanded: Bool
-    
     let content: Content
     let accessory: Accessory
 
     private let defaultsKey: String
     @State private var isCollapsed: Bool
-    
+
     let onCollapsedChange: ((Bool) -> Void)?
+
+    @Environment(SectionReorderModel.self)
+    private var reorder: SectionReorderModel?
 
     init(_ title: String,
          storageKey: String,
-         forceExpanded: Bool = false,
          onCollapsedChange: ((Bool) -> Void)? = nil,
          @ViewBuilder content: () -> Content,
          @ViewBuilder accessory: () -> Accessory) {
         self.title = title
-        self.forceExpanded = forceExpanded
         self.onCollapsedChange = onCollapsedChange
         self.content = content()
         self.accessory = accessory()
@@ -35,45 +34,22 @@ struct CollapsibleSection<Content: View, Accessory: View>: View {
         self.defaultsKey = key
         _isCollapsed = State(initialValue: UserDefaults.standard.bool(forKey: key))
     }
-    
+
     private func toggle() {
-        guard !forceExpanded else {
-            return
-        }
         withAnimation {
             isCollapsed.toggle()
         }
     }
-    
-    var body: some View {
-        let isExpanded = forceExpanded || !isCollapsed
 
+    var body: some View {
         Section {
-            if isExpanded {
+            // while sections are being reordered, just show the headers
+            if !isCollapsed && reorder?.isDragging != true {
                 content
             }
         } header: {
-            HStack(spacing: 16) {
-                Button(action: toggle) {
-                    sectionHeader(title)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                if isExpanded {
-                    accessory
-                }
-
-                if !forceExpanded {
-                    Button(action: toggle) {
-                        Image(systemName: "chevron.right")
-                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+            SectionHeader(title: title, accessory: accessory,
+                          isExpanded: !isCollapsed, onToggle: toggle)
         }
         .onChange(of: isCollapsed) { _, newValue in
             UserDefaults.standard.set(newValue, forKey: defaultsKey)
@@ -87,11 +63,9 @@ struct CollapsibleSection<Content: View, Accessory: View>: View {
 extension CollapsibleSection where Accessory == EmptyView {
     init(_ title: String,
          storageKey: String,
-         forceExpanded: Bool = false,
          onCollapsedChange: ((Bool) -> Void)? = nil,
          @ViewBuilder content: () -> Content) {
-        self.init(title, storageKey: storageKey, forceExpanded: forceExpanded,
-                  onCollapsedChange: onCollapsedChange,
+        self.init(title, storageKey: storageKey, onCollapsedChange: onCollapsedChange,
                   content: content, accessory: { EmptyView() })
     }
 }
