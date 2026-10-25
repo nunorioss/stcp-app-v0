@@ -67,7 +67,6 @@ final class StopArrivals {
         merge()
     }
 
-    //TODO: Only refresh when BusTracker detects a data change?
     func refreshLive() async {
         live = await Estimator.fetchLiveDataFromPortoDigital(for: stop)
         merge()

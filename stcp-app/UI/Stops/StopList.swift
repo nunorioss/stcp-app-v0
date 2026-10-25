@@ -20,22 +20,40 @@ struct StopList: View {
     private static let nearbyRadius: CLLocationDistance = 1000  // meters
     private static let minMoveDistance: CLLocationDistance = 5  // meters
     
-    @State private var searchText = ""
+    @State private var searchText = ""      // current search field
+    @State private var results: [BusStop] = []
+    @State private var resultsQuery = ""    // the query "results" was computed for
+    @State private var matchCount = 0       // total matches, excluding cap
 
+    // Max. results for a single letter query
+    private static let oneLetterCap = 100
+
+    //Stops sorted by ID
     private static let allStops: [BusStop] = DataStore.getBusStops().sorted { a, b in
         return a.id.localizedStandardCompare(b.id) == .orderedAscending
     }
+
+    private static let warmUp: Void = {
+        _ = DataStore.getLines(servingStop: "")
+        _ = allStops
+    }()
     
-    private func filtered(_ stops: [BusStop], by query: String) -> [BusStop] {
+    private static func search(_ query: String) -> [BusStop] {
         guard !query.isEmpty else {
-            return stops
+            return []
         }
- 
-        // Matches ID or name
-        return stops.filter {
-            $0.id.localizedStandardContains(query)
-            || $0.name.localizedStandardContains(query)
+        
+        let key = BusStop.nameKey(for: query)
+        let id = query.uppercased()
+        
+        let matches = allStops.filter {
+            $0.id.contains(id) || $0.nameKey.contains(key)
         }
+        
+        let startsWith: (BusStop) -> Bool = {
+            $0.id.hasPrefix(id) || $0.nameKey.hasPrefix(key) || $0.nameKey.contains(" " + key)
+        }
+        return matches.filter(startsWith) + matches.filter { !startsWith($0) }
     }
     
     private func refreshNearby() {
@@ -67,13 +85,20 @@ struct StopList: View {
     var body: some View {
         let query = searchText.trimmingCharacters(in: .whitespaces)
         let isSearching = !query.isEmpty
-
-        // only compute while searching
-        let results = isSearching ? filtered(Self.allStops, by: query) : []
           
         List {
             if isSearching {
                 ForEach(results, id: \.id) { StopRow(stop: $0, showLineBadges: true) }
+
+                if matchCount > results.count {
+                    Text("Only the first \(results.count) results are shown.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
 
             } else {
                 let favoriteStops = favorites.getFavoriteStops
@@ -111,9 +136,23 @@ struct StopList: View {
             StopView(stop: $0)
         }
         .overlay {
-            if isSearching, results.isEmpty {
+            if isSearching, resultsQuery == query, results.isEmpty {
                 ContentUnavailableView.search(text: searchText)
             }
+        }
+        // once the screen is up
+        .task {
+            try? await Task.sleep(for: .milliseconds(100))
+            Self.warmUp
+        }
+        .onChange(of: query) { _, query in
+            let matches = Self.search(query)
+            
+            // cap 1 letter query results
+            results = query.count == 1 ? Array(matches.prefix(Self.oneLetterCap)) : matches
+            
+            matchCount = matches.count
+            resultsQuery = query
         }
         .onAppear {
             if locationProvider.authorizationStatus == .notDetermined {
@@ -144,4 +183,3 @@ struct StopList: View {
         StopList()
     }
 }
-

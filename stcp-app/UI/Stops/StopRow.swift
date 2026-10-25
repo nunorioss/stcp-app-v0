@@ -68,7 +68,7 @@ struct StopRow: View {
                  
 
                  if showLineBadges {
-                     let lines = stop.lines.sorted { $0.shortName < $1.shortName }
+                     let lines = DataStore.getLines(servingStop: stop.id)
 
                      VStack(alignment: .leading, spacing: 5) {
                          ForEach(Array(stride(from: 0, to: lines.count, by: badgesPerRow)), id: \.self) { start in
